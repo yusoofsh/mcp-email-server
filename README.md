@@ -1,3 +1,24 @@
+# Private Email MCP — FastMCP OAuth fork
+
+This fork adds a **single-container remote MCP endpoint with local Argon2id password login**.
+No GitHub/Google OAuth app or external identity provider is needed. ChatGPT connects using
+OAuth authorization code + PKCE; Basic credentials are accepted only in the protected login
+step, never on `/mcp`.
+
+- **Deploy:** [Docker Compose and setup](docs/remote-oauth.md)
+- **Image:** `ghcr.io/yusoofsh/mcp-email-server:latest` (AMD64 / ARM64; published after CI passes)
+- **CI:** [Remote OAuth CI and GHCR](https://github.com/yusoofsh/mcp-email-server/actions/workflows/remote-ci.yml)
+- **Security design:** [Boundaries and limitations](docs/remote-design.md)
+- **Tracking:** [Implementation and validation issue #1](https://github.com/yusoofsh/mcp-email-server/issues/1)
+
+The upstream email engine stays unchanged in its SDK-v1 environment. A pinned FastMCP 4
+front end proxies it over private stdio in the same non-root container. Separate environments
+avoid an unsafe in-place SDK migration. Existing sender/recipient/attachment policies still apply.
+
+---
+
+## Upstream project documentation
+
 # mcp-email-server
 
 [![Release](https://img.shields.io/github/v/release/Wh1isper/mcp-email-server)](https://github.com/Wh1isper/mcp-email-server/releases)
