@@ -32,7 +32,8 @@ check: frontend-check ## Run code quality tools
 	@echo "Checking types with pyright"
 	@uv run python -m pyright
 	@echo "Checking for obsolete dependencies with deptry"
-	@uv run deptry .
+	# remote/ is an independently pinned project tested in remote-ci.yml.
+	@uv run deptry . --extend-exclude "(^|/)remote/"
 
 .PHONY: test
 test: ## Test the code with pytest
