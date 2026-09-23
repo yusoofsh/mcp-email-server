@@ -1,0 +1,18 @@
+{
+  "$schema": "node_modules/wrangler/config-schema.json",
+  "name": "email-mcp",
+  "main": "src/index.ts",
+  "compatibility_date": "2026-09-23",
+  "compatibility_flags": ["nodejs_compat", "global_fetch_strictly_public"],
+  "workers_dev": true,
+  "keep_vars": true,
+  "observability": { "enabled": false },
+  "kv_namespaces": [{ "binding": "OAUTH_KV" }],
+  "d1_databases": [
+    {
+      "binding": "AUTH_DB",
+      "database_name": "email-mcp-auth",
+      "migrations_dir": "migrations"
+    }
+  ]
+}
