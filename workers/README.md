@@ -98,17 +98,17 @@ not authorization to send, delete or disclose anything.
 
 ## Tools
 
-| Capability | Workers tools |
-| --- | --- |
-| Accounts and folders | `list_accounts`, `list_mailboxes` |
-| History and search | `list_emails_metadata` with bounded UID-window pagination |
-| Message bodies | `get_emails_content`, one message per call, without marking read |
-| Large-message access | `get_message_structure`, `get_message_part` |
-| Small attachment bytes | `get_attachment_content`, embedded MCP binary resource |
-| Sending | `send_email`, `reply_email`, `forward_email` |
-| Drafts | `save_draft` through IMAP APPEND |
-| Flags | `set_email_flag` for Seen/Flagged |
-| Move/archive/trash | `move_email`, `archive_email`, `trash_email` using UID MOVE |
+```text
+Accounts and folders:  list_accounts, list_mailboxes
+History and search:    list_emails_metadata (bounded UID-window pagination)
+Message bodies:        get_emails_content (one message, without marking read)
+Large-message access:  get_message_structure, get_message_part
+Attachment bytes:      get_attachment_content (embedded MCP binary resource)
+Sending:               send_email, reply_email, forward_email
+Drafts:                save_draft (IMAP APPEND)
+Flags:                 set_email_flag (Seen/Flagged)
+Moves:                 move_email, archive_email, trash_email (UID MOVE)
+```
 
 This is **not identical tool-schema parity** with the Python edition. It does not
 provide IMAP IDLE/webhooks, an offline mailbox archive, arbitrary IMAP keywords,
@@ -120,15 +120,16 @@ mailbox-wide EXPUNGE fallback.
 
 These are conservative application limits, not silent truncation:
 
-| Operation | Bound |
-| --- | --- |
-| Metadata | 10 results per call, default 5 |
-| Search | At most 500 UID values scanned per window |
-| Complete MIME parsing | 128 KiB |
-| MIME-part chunks | 32 KiB wire bytes per call |
-| Inline decoded attachment | At most 64 KiB encoded wire part |
-| Outbound MIME | 192 KiB total; attachments combined 128 KiB, maximum 5 |
-| Accounts | At most 5, also subject to Cloudflare's 5 KiB per-secret limit |
+```text
+Metadata:                   10 results per call, default 5
+Search:                     At most 500 UID values scanned per window
+Complete MIME parsing:      128 KiB
+MIME-part chunks:           32 KiB wire bytes per call
+Inline decoded attachment: At most 64 KiB encoded wire part
+Outbound MIME:              192 KiB total
+Outgoing attachments:      Combined 128 KiB, maximum 5 files
+Accounts:                   At most 5; configuration must fit a 5 KiB secret
+```
 
 Continue `next_before_uid` while `has_more` is true **even on an empty page**.
 An empty range is not proof the entire mailbox search is empty. Carry
