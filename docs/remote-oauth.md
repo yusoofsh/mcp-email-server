@@ -55,7 +55,8 @@ docker compose --env-file deploy/.env -f deploy/compose.yaml run --rm \
   --email YOUR_EMAIL_ADDRESS \
   --full-name 'YOUR NAME' \
   --imap-host YOUR_IMAP_HOST --imap-user YOUR_IMAP_USERNAME \
-  --smtp-host YOUR_SMTP_HOST --smtp-port 587 --smtp-user YOUR_SMTP_USERNAME
+  --smtp-host YOUR_SMTP_HOST --smtp-port 587 --smtp-user YOUR_SMTP_USERNAME \
+  --no-smtp-ssl --smtp-starttls
 ```
 
 The CLI asks for IMAP and SMTP credentials without placing them in command arguments.
@@ -152,7 +153,7 @@ POST endpoint only alongside its browser cookie, CSRF token and explicit consent
 
 ## CI and image access
 
-[Remote OAuth CI and GHCR](../.github/workflows/remote-ci.yml) runs the new auth suite,
+[Remote OAuth CI and GHCR](https://github.com/yusoofsh/mcp-email-server/blob/main/.github/workflows/remote-ci.yml) runs the new auth suite,
 upstream regression tests, and native container smoke tests before updating the
 multi-architecture release tags. PRs do not publish. Publishing uses the repository's
 `GITHUB_TOKEN` with `packages:write` only in publishing jobs. No custom PAT is needed

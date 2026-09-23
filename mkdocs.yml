@@ -10,6 +10,8 @@ copyright: Maintained by <a href="https://github.com/wh1isper">wh1isper</a>.
 nav:
   - Home: index.md
   - Getting Started: getting-started.md
+  - Remote OAuth Deployment: remote-oauth.md
+  - Remote Security Design: remote-design.md
   - Configuration: configuration.md
   - Validation: validation.md
   - MCP Tools: tools.md

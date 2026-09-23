@@ -3,24 +3,24 @@ name: Remote OAuth CI and GHCR
 on:
   push:
     branches: [main]
-    tags: ['email-v*']
+    tags: ["email-v*"]
     paths:
-      - 'remote/**'
-      - 'mcp_email_server/**'
-      - 'pyproject.toml'
-      - 'uv.lock'
-      - 'Dockerfile.remote*'
-      - 'deploy/**'
-      - '.github/workflows/remote-ci.yml'
+      - "remote/**"
+      - "mcp_email_server/**"
+      - "pyproject.toml"
+      - "uv.lock"
+      - "Dockerfile.remote*"
+      - "deploy/**"
+      - ".github/workflows/remote-ci.yml"
   pull_request:
     paths:
-      - 'remote/**'
-      - 'mcp_email_server/**'
-      - 'pyproject.toml'
-      - 'uv.lock'
-      - 'Dockerfile.remote*'
-      - 'deploy/**'
-      - '.github/workflows/remote-ci.yml'
+      - "remote/**"
+      - "mcp_email_server/**"
+      - "pyproject.toml"
+      - "uv.lock"
+      - "Dockerfile.remote*"
+      - "deploy/**"
+      - ".github/workflows/remote-ci.yml"
   workflow_dispatch:
 
 permissions:
@@ -41,7 +41,7 @@ jobs:
           persist-credentials: false
       - uses: actions/setup-python@ece7cb06caefa5fff74198d8649806c4678c61a1
         with:
-          python-version: '3.13'
+          python-version: "3.13"
           cache: pip
           cache-dependency-path: remote/requirements-ci.txt
       - name: Install tested dependency pins
@@ -65,7 +65,7 @@ jobs:
           persist-credentials: false
       - uses: actions/setup-python@ece7cb06caefa5fff74198d8649806c4678c61a1
         with:
-          python-version: '3.13'
+          python-version: "3.13"
       - run: python -m pip install uv==0.11.29
       - name: Run upstream tests in the original locked environment
         env:
