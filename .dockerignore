@@ -5,3 +5,12 @@
 !uv.lock
 !mcp_email_server/
 !mcp_email_server/**
+!remote/
+!remote/pyproject.toml
+!remote/requirements-runtime.txt
+!remote/src/
+!remote/src/**
+**/__pycache__
+**/*.pyc
+**/.env
+**/secrets

@@ -3,8 +3,10 @@ services:
     image: ${MCP_IMAGE:-ghcr.io/yusoofsh/mcp-email-server:latest}
     restart: unless-stopped
     ports:
-      - "127.0.0.1:9557:9557"
+      - "127.0.0.1:${MCP_BIND_PORT:-9557}:9557"
     environment:
+      MCP_HOST: 0.0.0.0
+      MCP_PORT: "9557"
       MCP_PUBLIC_URL: ${MCP_PUBLIC_URL:?Set the HTTPS public origin}
       MCP_AUTH_USERNAME: ${MCP_AUTH_USERNAME:?Set a login username}
       MCP_AUTH_REDIRECT_URIS: ${MCP_AUTH_REDIRECT_URIS:?Set exact OAuth callback URLs}
@@ -22,7 +24,7 @@ services:
 
 secrets:
   mcp_password_hash:
-    file: ./secrets/mcp-password.hash
+    file: ${MCP_PASSWORD_HASH_FILE:-./secrets/mcp-password.hash}
 
 volumes:
   email_data:

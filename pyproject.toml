@@ -74,6 +74,9 @@ exclude = [
     "frontend/playwright-report/**",
     "frontend/test-results/**",
     "frontend/*.tsbuildinfo",
+    "deploy/secrets/**",
+    "deploy/.env",
+    "remote/.venv*/**",
     "**/__pycache__/**",
 ]
 
@@ -83,6 +86,8 @@ packages = ["mcp_email_server"]
 [tool.hatch.build.targets.sdist]
 include = [
     "/mcp_email_server",
+    "/remote",
+    "/deploy",
     "/frontend",
     "/plugins",
     "/.agents",
@@ -91,7 +96,6 @@ include = [
     "/.dockerignore",
     "/.pre-commit-config.yaml",
     "/Dockerfile",
-    "/codecov.yaml",
     "/dev",
     "/tests",
     "/docs",
@@ -131,49 +135,8 @@ line-length = 120
 fix = true
 
 [tool.ruff.lint]
-select = [
-    # flake8-2020
-    "YTT",
-    # flake8-bandit
-    "S",
-    # flake8-bugbear
-    "B",
-    # flake8-builtins
-    "A",
-    # flake8-comprehensions
-    "C4",
-    # flake8-debugger
-    "T10",
-    # flake8-simplify
-    "SIM",
-    # isort
-    "I",
-    # mccabe
-    "C90",
-    # pycodestyle
-    "E",
-    "W",
-    # pyflakes
-    "F",
-    # pygrep-hooks
-    "PGH",
-    # pyupgrade
-    "UP",
-    # ruff
-    "RUF",
-    # tryceratops
-    "TRY",
-]
-ignore = [
-    # LineTooLong
-    "E501",
-    # DoNotAssignLambda
-    "E731",
-    # raise-vanilla-args
-    "TRY003",
-    # try-consider-else
-    "TRY300",
-]
+select = ["YTT", "S", "B", "A", "C4", "T10", "SIM", "I", "C90", "E", "W", "F", "PGH", "UP", "RUF", "TRY"]
+ignore = ["E501", "E731", "TRY003", "TRY300"]
 
 [tool.ruff.lint.per-file-ignores]
 "tests/*" = ["S101", "S106", "SIM117"]
