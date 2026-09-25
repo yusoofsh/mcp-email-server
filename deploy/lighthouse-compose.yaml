@@ -1,0 +1,39 @@
+services:
+  email-mcp:
+    image: ghcr.io/yusoofsh/mcp-email-server@sha256:19d65c1f327f2259b618fbdc6519a3ff4711e040b77e63b4db1dfd9e31d1af0d
+    restart: unless-stopped
+    env_file:
+      - ../../.env
+    environment:
+      MCP_PUBLIC_URL: ${MCP_PUBLIC_URL:?Set the HTTPS public origin}
+      MCP_AUTH_USERNAME: ${MCP_AUTH_USERNAME:?Set the OAuth login username}
+      MCP_AUTH_REDIRECT_URIS: ${MCP_AUTH_REDIRECT_URIS:?Set exact OAuth callback URLs}
+      MCP_AUTH_PASSWORD_HASH_FILE: /run/secrets/mcp_password_hash
+      MCP_EMAIL_SERVER_CONFIG_PATH: /data/mail/config.toml
+      MCP_EMAIL_BEARER_TOKEN: ""
+    secrets:
+      - mcp_password_hash
+    volumes:
+      - email_data:/data
+    networks:
+      - email
+    expose:
+      - "9557"
+    read_only: true
+    tmpfs:
+      - /tmp:rw,nosuid,nodev,noexec,size=128m,mode=1777
+    cap_drop: [ALL]
+    security_opt: [no-new-privileges:true]
+    stop_grace_period: 30s
+
+secrets:
+  mcp_password_hash:
+    file: ./secrets/mcp-password.hash
+
+volumes:
+  email_data:
+
+networks:
+  email:
+    external: true
+    name: email
