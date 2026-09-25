@@ -43,7 +43,7 @@ bounded, rebuildable observations.
 | [`10-mcp-interface-and-compatibility.md`](10-mcp-interface-and-compatibility.md)                       | stdio baseline, mail-only catalog, schemas, compatibility, bounds, and errors                 |
 | [`11-agent-integration-and-safe-setup.md`](11-agent-integration-and-safe-setup.md)                     | Codex/Claude Code integration, safe CLI/UI handoff, installation, and no-secret agent rules   |
 | [`12-delivery-validation-and-evolution.md`](12-delivery-validation-and-evolution.md)                   | verification map, test layers, package/release gates, documentation, and future change rules  |
-| [`13-single-operator-remote-oauth.md`](13-single-operator-remote-oauth.md)                             | hosted OAuth boundary, dynamic clients, callback binding, and operator consent                 |
+| [`13-single-operator-remote-oauth.md`](13-single-operator-remote-oauth.md)                             | hosted OAuth boundary, dynamic clients, callback binding, and operator consent                |
 
 Cross-references point to the owning document rather than duplicating its full
 contract. This README is the only ordered navigation map.
