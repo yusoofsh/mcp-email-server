@@ -59,6 +59,6 @@ resource, and one-time use.
 5. Registration limits, single-operator/full-mailbox permission, callback rules,
    and operational reset guidance are documented and covered by CI checks.
 6. Cross-origin navigation may open the ticketed login page only with the
-   configured Host and a valid ticket. Login POST rejects a supplied foreign
-   Origin; when Origin is absent, both the ticket-bound CSRF token and secure
-   browser cookie are required.
+   configured Host and a valid ticket. Login POST accepts embedded-browser
+   Origin variations only when both the ticket-bound CSRF token and secure
+   browser cookie match. Other routes reject supplied foreign Origins.

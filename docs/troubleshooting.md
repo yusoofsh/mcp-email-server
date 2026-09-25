@@ -600,9 +600,9 @@ See [DNS rebinding protection](transports.md#dns-rebinding-protection).
 For hosted OAuth, start the connection in your MCP client and follow its
 ticketed consent link; opening `/login` directly has no authorization ticket.
 The login page allows the cross-origin `GET` navigation from that client while
-still checking Host and ticket. Its form rejects a supplied foreign Origin; if
-Origin is omitted, the one-time CSRF token and secure browser cookie must both
-match.
+still checking Host and ticket. A form POST with a different or missing Origin
+is accepted only when the one-time CSRF token and secure browser cookie both
+match. Other routes continue to reject supplied foreign Origins.
 
 ## Legacy import reports a conflict or missing credential
 

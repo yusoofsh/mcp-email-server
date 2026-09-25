@@ -723,9 +723,9 @@ server.
 
 The hosted OAuth login page permits cross-origin `GET` navigation so an MCP
 client can open the consent flow. It still validates Host and requires a valid,
-short-lived ticket. The form `POST` rejects any supplied foreign Origin. A
-browser that omits Origin may submit it only when both the ticket-bound CSRF
-token and secure, same-site browser cookie are valid.
+short-lived ticket. Its form `POST` accepts embedded browser Origin variations
+only after both the ticket-bound CSRF token and secure, same-site browser cookie
+are valid. Other routes continue to reject supplied foreign Origins.
 
 See [Transports](transports.md#dns-rebinding-protection) for allowed host and
 origin settings.

@@ -165,11 +165,10 @@ POST endpoint only alongside its browser cookie, CSRF token and explicit consent
 
 The login-page `GET` supports cross-origin browser navigation from an MCP client
 and still requires the configured Host and a valid, short-lived authorization
-ticket. The form `POST` rejects a supplied `Origin` that differs from the
-configured public origin. Some embedded browsers omit `Origin` on form
-submissions; those requests still require both the ticket-bound CSRF token and
-the secure, same-site browser cookie. A missing `Origin` does not bypass either
-check.
+ticket. The login form may be submitted by embedded client browsers with a
+different or missing `Origin`; every submission still requires both the
+ticket-bound CSRF token and the secure, same-site browser cookie. Other routes
+continue to reject a supplied foreign `Origin`.
 
 ## CI and image access
 

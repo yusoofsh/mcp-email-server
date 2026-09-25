@@ -228,12 +228,16 @@ def test_login_without_origin_still_requires_csrf(app):
     assert client.post("/login", data=form).status_code == 303
 
 
-def test_login_rejects_foreign_origin(app):
+def test_login_accepts_foreign_origin_only_with_csrf(app):
     client, _ = app
     form = form_for(client, register(client))
+    forged = client.post(
+        "/login", data={**form, "csrf": "forged"}, headers={"origin": "https://evil.test"}
+    )
+    assert forged.status_code == 403
+    assert forged.json() == {"error": "invalid_csrf"}
     response = client.post("/login", data=form, headers={"origin": "https://evil.test"})
-    assert response.status_code == 403
-    assert response.json() == {"error": "invalid_origin"}
+    assert response.status_code == 303
 
 
 def test_login_page_allows_cross_origin_navigation_but_checks_host(app):
@@ -458,6 +462,9 @@ def test_request_boundary(app):
     client, _ = app
     assert client.get("/healthz", headers={"host": "evil.test"}).status_code == 400
     assert client.get("/healthz", headers={"origin": "https://evil.test"}).status_code == 403
+    rejected = client.post("/register", headers={"origin": "https://evil.test"})
+    assert rejected.status_code == 403
+    assert rejected.json() == {"error": "invalid_origin"}
     assert client.post("/register", content=b"x" * 17000).status_code == 413
     assert (
         client.post(

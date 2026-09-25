@@ -31,11 +31,13 @@ class Boundary:
         ):
             error = "invalid_host"
         origin = headers.get(b"origin")
-        login_navigation = path == "/login" and scope["method"] == "GET"
+        # The browser login flow can carry the client Origin; ticket-bound CSRF
+        # checks protect its form POST while Host validation stays exact.
+        login_interaction = path == "/login" and scope["method"] in {"GET", "POST"}
         if (
             origin is not None
             and origin.decode("latin-1") != self.settings.public_url
-            and not login_navigation
+            and not login_interaction
         ):
             error, status = "invalid_origin", 403
         if len(scope.get("query_string", b"")) > 8192:
