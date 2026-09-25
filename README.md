@@ -1,141 +1,62 @@
-# Private Email MCP — FastMCP OAuth fork
+# Private Email MCP
 
-This fork adds a **single-container remote MCP endpoint with local Argon2id password login**.
-No GitHub/Google OAuth app or external identity provider is needed. ChatGPT connects using
-OAuth authorization code + PKCE; Basic credentials are accepted only in the protected login
-step, never on `/mcp`.
+One self-hosted email MCP deployment: the original Python IMAP/SMTP engine behind
+FastMCP OAuth, with a local username/password stored as an Argon2id hash.
+No external identity provider is required.
 
-- **Deploy:** [Docker Compose and setup](docs/remote-oauth.md)
-- **Image:** `ghcr.io/yusoofsh/mcp-email-server:latest` (AMD64 / ARM64; published after CI passes)
-- **CI:** [Remote OAuth CI and GHCR](https://github.com/yusoofsh/mcp-email-server/actions/workflows/remote-ci.yml)
-- **Security design:** [Boundaries and limitations](docs/remote-design.md)
-- **Tracking:** [Implementation and validation issue #1](https://github.com/yusoofsh/mcp-email-server/issues/1)
+```text
+ChatGPT / MCP client -> HTTPS proxy -> OAuth MCP -> private stdio -> IMAP / SMTP
+```
 
-The upstream email engine stays unchanged in its SDK-v1 environment. A pinned FastMCP 4
-front end proxies it over private stdio in the same non-root container. Separate environments
-avoid an unsafe in-place SDK migration. Existing sender/recipient/attachment policies still apply.
+**Image:** `ghcr.io/yusoofsh/mcp-email-server:latest`, for Linux AMD64 and ARM64.
+The root `Dockerfile` and `deploy/compose.yaml` are the only deployment definitions.
+`latest` is intentionally mutable; CI records its exact digest for audit/rollback.
 
----
-
-## Upstream project documentation
-
-# mcp-email-server
-
-[![Release](https://img.shields.io/github/v/release/Wh1isper/mcp-email-server)](https://github.com/Wh1isper/mcp-email-server/releases)
-[![Build status](https://img.shields.io/github/actions/workflow/status/Wh1isper/mcp-email-server/main.yml?branch=main)](https://github.com/Wh1isper/mcp-email-server/actions/workflows/main.yml?query=branch%3Amain)
-[![codecov](https://codecov.io/gh/Wh1isper/mcp-email-server/graph/badge.svg?token=0mToRybKx8)](https://codecov.io/gh/Wh1isper/mcp-email-server)
-[![License](https://img.shields.io/github/license/Wh1isper/mcp-email-server)](https://github.com/Wh1isper/mcp-email-server/blob/main/LICENSE)
-
-An MCP server for reading, searching, organizing, and sending email through
-IMAP and SMTP.
-
-> [!NOTE]
-> Version 1.0.0 introduces Local Email App V2. Updating the package does not
-> automatically import existing settings created with PyPI 0.16.0 and earlier:
-> they remain active in backward-compatible `legacy` mode, so there is no required
-> migration. If you
-> would like to use the new managed storage, you can review and import those
-> settings whenever it is convenient.
-
-`mcp-email-server` supports Windows, macOS, and Linux. See
-[Security](docs/security.md) for platform-specific filesystem and credential
-storage details.
-
-## Optional migration for existing installations
-
-An `@latest` release that includes Local Email App V2 offers a preview-first
-CLI migration:
+## Deploy
 
 ```bash
-uvx mcp-email-server@latest config init \
-  --database ~/.config/mcp-email-server/managed.sqlite3
-uvx mcp-email-server@latest config import-legacy
-uvx mcp-email-server@latest config import-legacy --apply
-uvx mcp-email-server@latest config doctor
+git clone https://github.com/yusoofsh/mcp-email-server.git
+cd mcp-email-server
+cp deploy/.env.example deploy/.env
+# Edit the public HTTPS origin, login username and exact OAuth callback.
+bash deploy/init-secrets.sh
 ```
 
-The apply step displays the plan again and asks for `IMPORT` confirmation. A
-complete import selects managed mode; otherwise the existing legacy settings
-remain selected. The source TOML file and its legacy keyring entries are left
-untouched. You can also run `uvx mcp-email-server@latest ui` and choose **Import
-existing settings**. After a successful import, restart running MCP clients. See
-the detailed [upgrade guidance](docs/getting-started.md#upgrading-to-local-email-app-v2)
-and [import troubleshooting](docs/troubleshooting.md#legacy-import-reports-a-conflict-or-missing-credential).
-
-## Quick start
-
-### 1. Configure an email account
-
-From this source checkout, run the configuration UI with
-[`uv`](https://docs.astral.sh/uv/):
+Follow [the setup guide](docs/remote-oauth.md) to configure the mailbox and policies,
+then start the service:
 
 ```bash
-uv sync
-uv run mcp-email-server ui
+docker compose --env-file deploy/.env -f deploy/compose.yaml pull
+docker compose --env-file deploy/.env -f deploy/compose.yaml up -d
 ```
 
-For a published release whose notes state that it includes Local Email App V2,
-`uvx mcp-email-server@latest ui` is the equivalent temporary invocation.
+The app binds only host loopback on port 9557. Terminate HTTPS at your reverse proxy
+and preserve the public Host header and OAuth endpoint paths. Do not add a static
+Bearer gate in front of OAuth discovery/login. `/mcp` itself requires OAuth tokens.
 
-Keep the foreground command running. On a truly empty installation, the
-authenticated browser session prepares private account storage at the safe local
-default; existing TOML or environment configuration instead offers an explicit
-import review while the previous settings keep running. The account-first UI has
-only **Email accounts** and **Settings & help** as primary destinations. Start
-with the email address and password; the UI fills common connection settings from
-the email domain and keeps them editable, while outgoing mail remains optional.
-A saved complete account is ready without a separate activation step. Use
-**Password & test** on the saved account if desired, then restart the MCP client
-to apply the selected settings.
+The login password and mail-provider credentials are separate. Configure mailboxes
+interactively using the included engine CLI; never send credentials through chat.
+The upstream mail tools, sender/recipient policies and attachment controls remain
+intact. This is a single-operator service, not multi-tenant mailbox isolation.
 
-### 2. Configure the MCP client
+## Validation and maintenance
 
-Use the same V2-capable distribution for stdio as for the UI. For a published
-V2 release, add the following server definition to the MCP client:
+[Main CI](https://github.com/yusoofsh/mcp-email-server/actions/workflows/main.yml)
+is the sole workflow. It retains Python, Windows, browser, packaging and mail E2E
+checks, plus OAuth tests and native AMD64/ARM64 tests of the exact candidate images.
+Only the current `main` commit can promote both tested digests to `latest`; the
+publication step never rebuilds the images. Failed or stale runs leave `latest`
+unchanged. Pull requests never publish images.
 
-```json
-{
-  "mcpServers": {
-    "mcp-email-server": {
-      "command": "uvx",
-      "args": ["mcp-email-server@latest", "stdio"]
-    }
-  }
-}
-```
+- [Deployment and migration](docs/remote-oauth.md)
+- [Security design](docs/remote-design.md)
+- [Mail tool contract](docs/tools.md)
+- [Contributing and local engine development](CONTRIBUTING.md)
 
-Restart the MCP client after updating its configuration. When testing this
-source checkout before publication, invoke `uv run --directory
-/absolute/path/to/mcp-email-server mcp-email-server stdio` instead of pairing a
-managed catalog with PyPI `@latest`.
+The engine and OAuth adapter use isolated dependency environments in one non-root
+container; this is not a second deployment. Local engine CLI/UI and stdio remain
+available for setup and development. No cloud-hosted runtime or unauthenticated
+container variant is published by this fork.
 
-### 3. Verify the connection
-
-Ask the client to list the configured email accounts or recent messages.
-
-## Other configuration methods
-
-For the SQLite-backed managed CLI workflow, Windows and POSIX storage boundaries,
-headless environments, multiple accounts, custom TLS settings, and
-environment-variable configuration, see the
-[documentation](https://mcp-email-server.wh1isper.top/). Release 1.6.2 and later
-also publish Linux `amd64`/`arm64` images at
-`ghcr.io/wh1isper/mcp-email-server`; see the
-[container instructions](https://mcp-email-server.wh1isper.top/getting-started/#run-the-official-container-image).
-
-## Documentation
-
-- [Getting Started](https://mcp-email-server.wh1isper.top/getting-started/)
-- [Configuration](https://mcp-email-server.wh1isper.top/configuration/)
-- [MCP Tools](https://mcp-email-server.wh1isper.top/tools/)
-- [Transports](https://mcp-email-server.wh1isper.top/transports/)
-- [Security](https://mcp-email-server.wh1isper.top/security/)
-- [Troubleshooting](https://mcp-email-server.wh1isper.top/troubleshooting/)
-
-## Development
-
-See [CONTRIBUTING.md](https://github.com/Wh1isper/mcp-email-server/blob/main/CONTRIBUTING.md).
-
-## License
-
-This project is licensed under the terms of the [LICENSE](https://github.com/Wh1isper/mcp-email-server/blob/main/LICENSE).
+Based on [Wh1isper/mcp-email-server](https://github.com/Wh1isper/mcp-email-server).
+Original authorship and the [BSD-3-Clause license](LICENSE) are preserved.

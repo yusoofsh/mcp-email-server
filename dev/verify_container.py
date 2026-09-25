@@ -1,4 +1,5 @@
 """Invoke canonical Compose/OAuth checks from the development Makefile."""
+
 from __future__ import annotations
 
 import runpy
