@@ -125,7 +125,7 @@ def verify(image: str, expected_version: str | None, source: str | None, report:
             "MCP_BIND_PORT": "0",
             "MCP_PUBLIC_URL": PUBLIC,
             "MCP_AUTH_USERNAME": "test-operator",
-            "MCP_AUTH_REDIRECT_URIS": CALLBACK,
+            "MCP_AUTH_REDIRECT_URIS": "*",
             "MCP_PASSWORD_HASH_FILE": str(hash_file),
         }
         compose = [

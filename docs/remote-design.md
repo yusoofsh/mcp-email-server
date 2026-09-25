@@ -33,7 +33,11 @@ at the HTTP boundary, and public-client revocation replaces the SDK handler that
 
 - No unauthenticated engine HTTP listener; `/mcp` rejects Basic credentials.
 - Optional HTTP Basic at POST `/login` still requires a browser-bound CSRF token and explicit consent.
-- Exact operator-configured HTTPS callback allowlist, fixed public issuer/resource; no wildcard redirects.
+- Optional public dynamic registration for any valid client callback, or an exact operator allowlist.
+  Each authorization must match a callback stored for that client; loopback HTTP callbacks may vary only
+  the port, as specified for native apps. Wildcard, credential-bearing, fragment, unsafe browser, and
+  non-loopback HTTP callbacks are rejected.
+- Authorization errors and denied consent never redirect an unauthenticated browser to a client callback.
 - Explicit consent naming the client, exact callback and capabilities. HTML escapes client input.
 - Secure, HttpOnly, SameSite=Strict `__Host-` cookie plus a separate hidden CSRF token.
 - Argon2id password verification in a bounded worker pool; generic failed-login messages.
@@ -50,8 +54,11 @@ at the HTTP boundary, and public-client revocation replaces the SDK handler that
 Use one replica and one worker, a private local SQLite volume, HTTPS termination and
 an operator-controlled host. The service does not trust forwarded client-IP headers:
 behind a proxy, per-IP limits apply collectively to that proxy. Additional edge limits
-may improve abuse resistance. Public registration is bounded (128 clients); repeated
-registrations can exhaust it. Reset registration state explicitly when needed.
+may improve abuse resistance. Public registration is limited to 10 attempts per minute
+globally and bounded at 128 active clients; repeated registrations can exhaust this cap.
+Reset registration state explicitly when needed. An open DCR endpoint lets any client
+register metadata, but no client receives mailbox access unless the operator signs in
+and approves that connection.
 
 Access tokens last 15 minutes; refresh grants have an absolute 30-day lifetime. After
 that, reconnect interactively. Revocation/password changes invalidate grants; copied

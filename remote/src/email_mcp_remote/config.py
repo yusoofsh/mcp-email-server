@@ -3,7 +3,9 @@
 from __future__ import annotations
 
 import os
+import re
 from dataclasses import dataclass, field
+from ipaddress import ip_address
 from pathlib import Path
 from urllib.parse import urlsplit
 
@@ -22,6 +24,64 @@ def check_https_url(value: str) -> str:
         or any(c.isspace() for c in value)
     ):
         raise ValueError("Expected an absolute HTTPS URL without credentials, query, or fragment")
+    return value
+
+
+def check_redirect_uri(value: str) -> str:
+    """Accept safe OAuth web, loopback, and native-app redirect URI forms."""
+    try:
+        parsed = urlsplit(value)
+        hostname = parsed.hostname
+        parsed.port
+    except (AttributeError, ValueError):
+        raise ValueError("OAuth callback must be a valid absolute URI") from None
+    if (
+        not parsed.scheme
+        or not re.fullmatch(r"[A-Za-z][A-Za-z0-9+.-]*", parsed.scheme)
+        or not hostname
+        and parsed.scheme.lower() in {"https", "http"}
+        or parsed.netloc
+        and not hostname
+        or parsed.username is not None
+        or parsed.password is not None
+        or parsed.fragment
+        or "*" in value
+        or any(c.isspace() or ord(c) < 32 for c in value)
+        or "\\" in value
+    ):
+        raise ValueError("OAuth callback must be an exact absolute URI without credentials or fragments")
+
+    scheme = parsed.scheme.lower()
+    if scheme == "https":
+        return value
+    if scheme == "http":
+        if parsed.port is None or parsed.port == 0:
+            raise ValueError("Loopback OAuth callbacks must specify a nonzero port")
+        try:
+            loopback = ip_address(hostname).is_loopback
+        except ValueError:
+            loopback = hostname.lower() == "localhost"
+        if not loopback:
+            raise ValueError("HTTP OAuth callbacks are allowed only on the local loopback interface")
+        return value
+
+    # RFC 8252 private-use schemes identify a native app. Do not allow browser
+    # execution, file access, or generic URL handlers as OAuth destinations.
+    if scheme in {
+        "about",
+        "blob",
+        "data",
+        "file",
+        "ftp",
+        "javascript",
+        "mailto",
+        "tel",
+        "vbscript",
+        "view-source",
+    }:
+        raise ValueError("Unsupported OAuth callback scheme")
+    if "." not in scheme or not (parsed.netloc or parsed.path.startswith("/")):
+        raise ValueError("Native OAuth callback schemes must use a reverse-domain scheme and path")
     return value
 
 
@@ -45,11 +105,14 @@ class Settings:
         if not self.username or len(self.username) > 128 or ":" in self.username:
             raise ValueError("Set a nonempty MCP_AUTH_USERNAME (maximum 128 characters, no colon)")
         if not self.redirect_uris or len(self.redirect_uris) > 16:
-            raise ValueError("Set MCP_AUTH_REDIRECT_URIS to the exact client callback URL(s)")
-        for uri in self.redirect_uris:
-            check_https_url(uri)
-            if "*" in uri or not urlsplit(uri).path:
-                raise ValueError("OAuth callbacks must have exact HTTPS paths; wildcards are forbidden")
+            raise ValueError(
+                "Set MCP_AUTH_REDIRECT_URIS to exact callback URL(s), or * to allow dynamic clients"
+            )
+        if self.redirect_uris != ("*",):
+            if "*" in self.redirect_uris:
+                raise ValueError("Use * alone to allow dynamically registered OAuth clients")
+            for uri in self.redirect_uris:
+                check_redirect_uri(uri)
         try:
             params = extract_parameters(self.password_hash)
         except Exception as exc:

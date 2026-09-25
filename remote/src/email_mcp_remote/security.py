@@ -107,7 +107,50 @@ class Boundary:
                 return
 
         async def secured_send(message):
+            nonlocal rejected_oauth_redirect, rejected_body_sent
             if message["type"] == "http.response.start":
+                if path == "/authorize" and 300 <= message["status"] < 400:
+                    response_headers = {k.lower(): v for k, v in message.get("headers", [])}
+                    location = response_headers.get(b"location", b"").decode("latin-1")
+                    target = urlsplit(location)
+                    expected_issuer = urlsplit(self.settings.public_url)
+                    same_issuer = (
+                        target.scheme == expected_issuer.scheme and target.netloc == expected_issuer.netloc
+                    )
+                    local_login = (
+                        target.path == "/login"
+                        and bool(target.query)
+                        and not location.startswith("//")
+                        and (not target.scheme and not target.netloc or same_issuer)
+                    )
+                    if not local_login:
+                        # The SDK normally redirects OAuth errors to the callback. With
+                        # open DCR that callback has not been trusted by the operator.
+                        rejected_oauth_redirect = True
+                        error_body = b'{"error":"invalid_request"}'
+                        message = {
+                            **message,
+                            "status": 400,
+                            "headers": [
+                                (b"content-type", b"application/json"),
+                                (b"content-length", str(len(error_body)).encode("ascii")),
+                                (b"cache-control", b"no-store"),
+                            ],
+                        }
+                if rejected_oauth_redirect:
+                    message = {
+                        **message,
+                        "headers": [
+                            (k, v)
+                            for k, v in message.get("headers", [])
+                            if k.lower() not in {b"content-length", b"content-type", b"location"}
+                        ]
+                        + [
+                            (b"content-type", b"application/json"),
+                            (b"content-length", str(len(b'{"error":"invalid_request"}')).encode("ascii")),
+                            (b"cache-control", b"no-store"),
+                        ],
+                    }
                 response_headers = list(message.get("headers", []))
                 response_headers.extend(
                     [
@@ -121,8 +164,19 @@ class Boundary:
                     ]
                 )
                 message = {**message, "headers": response_headers}
+            elif message["type"] == "http.response.body" and rejected_oauth_redirect:
+                if rejected_body_sent:
+                    return
+                rejected_body_sent = True
+                message = {
+                    **message,
+                    "body": b'{"error":"invalid_request"}',
+                    "more_body": False,
+                }
             await send(message)
 
+        rejected_oauth_redirect = False
+        rejected_body_sent = False
         try:
             await self.app(scope, replay, secured_send)
         except StateFull:

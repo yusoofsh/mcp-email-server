@@ -1,7 +1,8 @@
 # Local Email App Specifications
 
-This directory defines the normative product and architecture contract for the
-Local Email App. The documents are organized by domain and design ownership.
+This directory defines the normative product and architecture contracts for the
+Local Email App and its optional single-operator hosted OAuth front end. The
+documents are organized by domain and design ownership.
 They describe the intended behavior and acceptance conditions; they do not claim
 that a requirement is implemented merely because it appears here.
 
@@ -42,6 +43,7 @@ bounded, rebuildable observations.
 | [`10-mcp-interface-and-compatibility.md`](10-mcp-interface-and-compatibility.md)                       | stdio baseline, mail-only catalog, schemas, compatibility, bounds, and errors                 |
 | [`11-agent-integration-and-safe-setup.md`](11-agent-integration-and-safe-setup.md)                     | Codex/Claude Code integration, safe CLI/UI handoff, installation, and no-secret agent rules   |
 | [`12-delivery-validation-and-evolution.md`](12-delivery-validation-and-evolution.md)                   | verification map, test layers, package/release gates, documentation, and future change rules  |
+| [`13-single-operator-remote-oauth.md`](13-single-operator-remote-oauth.md)                             | hosted OAuth boundary, dynamic clients, callback binding, and operator consent                 |
 
 Cross-references point to the owning document rather than duplicating its full
 contract. This README is the only ordered navigation map.

@@ -25,7 +25,7 @@ client can use all configured mailboxes subject to upstream email policies.
 git clone https://github.com/yusoofsh/mcp-email-server.git
 cd mcp-email-server
 cp deploy/.env.example deploy/.env
-# Edit deploy/.env: public HTTPS origin, username, exact client callback URL(s).
+# Edit deploy/.env: public HTTPS origin, username, and callback registration policy.
 bash deploy/init-secrets.sh
 ```
 
@@ -34,12 +34,19 @@ owner-only `deploy/secrets/` directory. It does not save the plaintext password.
 Do not commit `.env`, `secrets/`, `/data`, mailbox credentials or authentication databases.
 
 For ChatGPT, create a custom MCP app using `https://YOUR_HOST/mcp` with **OAuth**.
-Copy the exact callback shown by ChatGPT into `MCP_AUTH_REDIRECT_URIS` (comma-separated
-for multiple clients). Current callback URLs are installation-specific, for example
-`https://chatgpt.com/connector/oauth/<callback_id>`; do not literally use the placeholder.
-Do not use a wildcard. Leave client ID/secret blank for dynamic client registration.
-The older callback `https://chatgpt.com/connector_platform_oauth_redirect` should only
-be allowed when it is the callback actually shown/used by your client.
+Leave client ID/secret blank for dynamic client registration. To let multiple MCP
+clients register themselves without manually copying callback URLs, set
+`MCP_AUTH_REDIRECT_URIS=*`. The server still records each client's callbacks during
+registration and matches them during authorization. Each client can register up to
+16 callbacks; the server keeps up to 128 client registrations. Registration is public,
+but each new authorization requires your login password and explicit consent.
+
+Open DCR accepts HTTPS callbacks, HTTP callbacks on the local loopback interface,
+and reverse-domain native-app URI schemes. Loopback callbacks may change only their
+port between registration and authorization. Callbacks cannot contain wildcards,
+embedded credentials, fragments, or unsafe schemes such as `javascript:` and `file:`.
+If you prefer an operator allowlist, use the exact callback URL(s) as a comma-separated
+list instead. ChatGPT's callback URL can vary by installation; do not use a placeholder.
 
 ## 2. Initialize email configuration
 
@@ -123,6 +130,9 @@ curl -i -X POST https://YOUR_HOST/mcp -H 'Content-Type: application/json' -d '{}
 Connect ChatGPT, enter your local username/password on the login page, read the
 consent screen, and authorize. Test list/search/attachment retrieval first. Send a
 message to yourself only after you explicitly authorize that live test.
+The consent page shows the client name and callback. Approve only a connection you
+started in a client you recognize. Denying a connection stays on the server page;
+the server does not redirect an unauthenticated browser to the registered callback.
 
 ## Updating, revocation and backups
 

@@ -12,6 +12,7 @@ import re
 import secrets
 import time
 from hmac import compare_digest
+from ipaddress import ip_address
 from urllib.parse import parse_qsl, urlencode, urlsplit, urlunsplit
 
 import anyio
@@ -28,17 +29,67 @@ from mcp.server.auth.provider import (
 )
 from mcp.server.auth.routes import build_metadata
 from mcp.server.auth.settings import ClientRegistrationOptions, RevocationOptions
-from mcp.shared.auth import OAuthClientInformationFull, OAuthToken
+from mcp.shared.auth import InvalidRedirectUriError, OAuthClientInformationFull, OAuthToken
+from pydantic import AnyUrl
 from starlette.requests import Request
 from starlette.responses import HTMLResponse, JSONResponse, RedirectResponse
 from starlette.routing import Route
 
-from .config import Settings
+from .config import Settings, check_redirect_uri
 from .store import Store, digest
 
 SCOPE = "email:access"
 COOKIE = "__Host-email-mcp-csrf"
 NO_STORE = {"Cache-Control": "no-store", "Pragma": "no-cache", "Referrer-Policy": "no-referrer"}
+
+
+def _same_loopback_redirect_except_port(registered: str, requested: str) -> bool:
+    try:
+        registered_parts, requested_parts = urlsplit(registered), urlsplit(requested)
+        registered_host, requested_host = registered_parts.hostname, requested_parts.hostname
+        requested_port = requested_parts.port
+    except ValueError:
+        return False
+    if (
+        registered_parts.scheme.lower() != "http"
+        or requested_parts.scheme.lower() != "http"
+        or registered_host != requested_host
+        or registered_parts.path != requested_parts.path
+        or registered_parts.query != requested_parts.query
+        or requested_port is None
+    ):
+        return False
+    if registered_host == "localhost":
+        return True
+    try:
+        return ip_address(registered_host or "").is_loopback
+    except ValueError:
+        return False
+
+
+def _redirect_matches_registered(uri: str, registered_uris: list[AnyUrl] | None) -> bool:
+    if not registered_uris:
+        return False
+    return any(
+        uri == str(registered) or _same_loopback_redirect_except_port(str(registered), uri)
+        for registered in registered_uris
+    )
+
+
+class RegisteredOAuthClient(OAuthClientInformationFull):
+    """Apply RFC 8252 loopback port matching to this SDK's exact-match default."""
+
+    def validate_redirect_uri(self, redirect_uri: AnyUrl | None) -> AnyUrl:
+        if redirect_uri is None:
+            return super().validate_redirect_uri(redirect_uri)
+        uri = str(redirect_uri)
+        try:
+            check_redirect_uri(uri)
+        except ValueError as exc:
+            raise InvalidRedirectUriError(str(exc)) from exc
+        if _redirect_matches_registered(uri, self.redirect_uris):
+            return redirect_uri
+        raise InvalidRedirectUriError(f"Redirect URI '{uri}' not registered for client")
 
 
 def redirect_to(uri: str, **params: str) -> str:
@@ -65,7 +116,7 @@ class PasswordOAuthProvider(OAuthProvider):
 
     async def get_client(self, client_id: str) -> OAuthClientInformationFull | None:
         data = self.store.get("client", client_id)
-        return OAuthClientInformationFull.model_validate(data) if data else None
+        return RegisteredOAuthClient.model_validate(data) if data else None
 
     async def register_client(self, client_info: OAuthClientInformationFull) -> None:
         if client_info.token_endpoint_auth_method != "none" or client_info.client_secret:
@@ -74,7 +125,14 @@ class PasswordOAuthProvider(OAuthProvider):
             )
         if not client_info.redirect_uris or len(client_info.redirect_uris) > 16:
             raise RegistrationError("invalid_redirect_uri", "One or more allowed callbacks are required")
-        if any(str(uri) not in self.config.redirect_uris for uri in client_info.redirect_uris):
+        for uri in client_info.redirect_uris:
+            try:
+                check_redirect_uri(str(uri))
+            except ValueError as exc:
+                raise RegistrationError("invalid_redirect_uri", str(exc)) from exc
+        if self.config.redirect_uris != ("*",) and any(
+            str(uri) not in self.config.redirect_uris for uri in client_info.redirect_uris
+        ):
             raise RegistrationError("invalid_redirect_uri", "Callback is not in the operator allowlist")
         if (
             set(client_info.grant_types) - {"authorization_code", "refresh_token"}
@@ -89,7 +147,7 @@ class PasswordOAuthProvider(OAuthProvider):
         self.store.put("client", client_info.client_id, client_info.model_dump(mode="json"), 253402300799)
 
     async def authorize(self, client: OAuthClientInformationFull, params: AuthorizationParams) -> str:
-        if str(params.redirect_uri) not in self.config.redirect_uris:
+        if not self._callback_allowed(client, str(params.redirect_uri)):
             raise AuthorizeError("access_denied", "Callback no longer allowed")
         if params.resource is not None and params.resource != self.config.resource:
             raise AuthorizeError("invalid_target", "Unknown resource")
@@ -111,6 +169,15 @@ class PasswordOAuthProvider(OAuthProvider):
             expires,
         )
         return self.config.public_url + "/login?ticket=" + ticket
+
+    def _callback_allowed(self, client: OAuthClientInformationFull, uri: str) -> bool:
+        try:
+            check_redirect_uri(uri)
+        except ValueError:
+            return False
+        if self.config.redirect_uris != ("*",) and uri not in self.config.redirect_uris:
+            return False
+        return _redirect_matches_registered(uri, client.redirect_uris)
 
     def _page(self, ticket: str, pending: dict, csrf: str, error: str = "") -> HTMLResponse:
         esc = html.escape
@@ -162,17 +229,19 @@ including sending mail and returning attachments, subject to your email policies
         ):
             return JSONResponse({"error": "invalid_csrf"}, status_code=403, headers=NO_STORE)
         params = AuthorizationParams.model_validate(pending["params"])
-        if str(params.redirect_uri) not in self.config.redirect_uris:
+        client = await self.get_client(pending["client_id"])
+        if not client or not self._callback_allowed(client, str(params.redirect_uri)):
             return JSONResponse({"error": "invalid_redirect_uri"}, status_code=403, headers=NO_STORE)
         if form.get("decision") == "deny":
             self.store.pop("pending", digest(ticket))
-            location = redirect_to(
-                str(params.redirect_uri),
-                error="access_denied",
-                iss=self.config.public_url,
-                **({"state": params.state} if params.state is not None else {}),
+            response = HTMLResponse(
+                '<!doctype html><html lang="en"><meta charset="utf-8"><title>Connection declined</title>'
+                "<h1>Connection declined</h1><p>No access was granted. Return to your MCP client and try again "
+                "if you want to connect.</p></html>",
+                headers=NO_STORE,
             )
-            return RedirectResponse(location, status_code=303, headers=NO_STORE)
+            response.delete_cookie(COOKIE, path="/", secure=True, httponly=True, samesite="strict")
+            return response
         if form.get("decision") != "approve":
             return JSONResponse({"error": "explicit_consent_required"}, status_code=400, headers=NO_STORE)
         username, password = str(form.get("username", "")), str(form.get("password", ""))

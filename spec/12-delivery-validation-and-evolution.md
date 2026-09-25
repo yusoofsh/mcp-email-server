@@ -32,6 +32,7 @@ before release.
 | embedded attachment content                        | 04, 06, 10             | independent policy, MIME matrix, one-copy/global-result bounds, raw protocol, and GreenMail E2E |
 | agent integration and safe setup handoff           | 11                     | Codex/Claude Code install fixtures, scenario, drift, and no-secret tests                        |
 | release artifacts and container delivery           | 12                     | exact source/version, restricted image, raw stdio, multi-platform, and publication gates        |
+| single-operator remote OAuth front end             | 13                     | DCR callback validation, PKCE, consent, redirect safety, limits, and image verification         |
 
 ### Checked Delivery References
 
@@ -53,6 +54,7 @@ is updated only after the independent review has examined the complete diff.
 | 09.1-09.8      | `mcp_email_server/web_ui/`, `frontend/`, `dev/build_frontend.py`, `Makefile`                                                  | `tests/test_web_ui_*.py`, `test_packaging.py`, `frontend/src/*.test.tsx`, `frontend/src/components/*.test.tsx`, `frontend/e2e/local-management.spec.ts`                                                                                                                                                     | `docs/getting-started.md`, `configuration.md`, `security.md`, `transports.md`, `troubleshooting.md`, `validation.md` | Independent review: no unresolved material findings |
 | 10.1-10.8      | `mcp_email_server/app.py`, `stdio.py`, `application/limits.py`, `large_results.py`                                            | `tests/fixtures/mcp_catalog.json`, `tests/test_mcp_tools.py`, `test_stdio_protocol.py`, `test_large_results.py`, `e2e/test_stdio_greenmail.py`                                                                                                                                                              | `docs/tools.md`, `transports.md`, `validation.md`                                                                    | Independent review: no unresolved material findings |
 | 11.1-11.8      | `plugins/mcp-email-server/`, `.agents/plugins/marketplace.json`, `.claude-plugin/marketplace.json`, `mcp_email_server/cli.py` | `tests/test_agent_integrations.py`, `test_cli.py`, `test_web_ui_server.py`                                                                                                                                                                                                                                  | `docs/guides.md`, `getting-started.md`, `security.md`                                                                | Independent review: no unresolved material findings |
+| 13.1-13.5      | `remote/src/email_mcp_remote/{config,auth,security}.py`                                                                       | `remote/tests/test_oauth.py`, `remote/scripts/verify_container.py`, GitHub Actions `oauth-tests` and `image` jobs                                                                                                                                                                                           | `docs/remote-oauth.md`, `docs/remote-design.md`                                                                      | Independent review clear; GitHub Actions pending    |
 
 For each normative acceptance item, the implementation review records:
 
@@ -278,14 +280,15 @@ for v4. Explicit import from legacy TOML, environment, and keyring sources remai
 available. Security properties cannot be weakened through a compatibility flag
 without explicit threat analysis and maintainer acceptance.
 
-Deferred items such as MCP Apps, remote UI, hard purge, online backup/restore,
-OAuth, epoch-bound public IDs, QRESYNC, or background sync require separate
-scope, authority, security, migration, and acceptance designs. Their future
-possibility does not add placeholders or generic abstractions now.
+Deferred items such as MCP Apps, remote management UI, hard purge, online
+backup/restore, OAuth within the Local Email App core, epoch-bound public IDs,
+QRESYNC, or background sync require separate scope, authority, security,
+migration, and acceptance designs. The independent one-operator remote OAuth
+front end is governed by spec 13 and does not add those capabilities to the core.
 
 ## Acceptance Criteria
 
-1. Every acceptance item in specs 01-11 has concrete production, test, docs, and
+1. Every acceptance item in specs 01-13 has concrete production, test, docs, and
    review references in the checked delivery matrix.
 2. The entire Python/frontend/security/E2E/docs gate passes from a clean checkout
    and leaves no uncommitted generated drift.

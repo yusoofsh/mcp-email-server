@@ -76,12 +76,12 @@ def app(settings, backend):
     auth.store.close()
 
 
-def register(client):
+def register(client, callback=CALLBACK):
     response = client.post(
         "/register",
         json={
             "client_name": "Test client",
-            "redirect_uris": [CALLBACK],
+            "redirect_uris": [callback],
             "token_endpoint_auth_method": "none",
             "grant_types": ["authorization_code", "refresh_token"],
             "response_types": ["code"],
@@ -92,11 +92,11 @@ def register(client):
     return response.json()["client_id"]
 
 
-def begin(client, client_id, **overrides):
+def begin(client, client_id, callback=CALLBACK, **overrides):
     params = dict(
         client_id=client_id,
         response_type="code",
-        redirect_uri=CALLBACK,
+        redirect_uri=callback,
         scope=SCOPE,
         state="client-state",
         code_challenge=CHALLENGE,
@@ -226,8 +226,9 @@ def test_consent_deny(app):
     response = client.post(
         "/login", data={**form, "decision": "deny", "password": ""}, headers={"origin": BASE}
     )
-    assert response.status_code == 303
-    assert parse_qs(urlsplit(response.headers["location"]).query)["error"] == ["access_denied"]
+    assert response.status_code == 200
+    assert "No access was granted" in response.text
+    assert "location" not in response.headers
 
 
 def test_browser_binding(app):
@@ -271,6 +272,83 @@ def test_registration_callback_allowlist(app):
         json={"redirect_uris": ["https://evil.test/callback"], "token_endpoint_auth_method": "none"},
     )
     assert result.status_code == 400, result.text
+
+
+def test_dynamic_registration_binds_https_and_loopback_callbacks(app):
+    client, auth = app
+    auth.config = replace(auth.config, redirect_uris=("*",))
+    callback = "https://second-client.example/oauth/callback"
+    client_id = register(client, callback)
+    accepted = begin(
+        client,
+        client_id,
+        callback=callback,
+    )
+    assert accepted.status_code == 302
+    assert urlsplit(accepted.headers["location"]).path == "/login"
+
+    local_callback = "http://127.0.0.1:51004/oauth/callback"
+    local_client_id = register(client, local_callback)
+    port_changed = begin(
+        client,
+        local_client_id,
+        callback="http://127.0.0.1:61023/oauth/callback",
+    )
+    assert port_changed.status_code == 302
+    assert urlsplit(port_changed.headers["location"]).path == "/login"
+
+    unregistered = begin(
+        client,
+        local_client_id,
+        callback="http://127.0.0.1:61023/attacker",
+    )
+    assert unregistered.status_code == 400
+    assert "location" not in unregistered.headers
+
+
+def test_dynamic_registration_accepts_reverse_domain_native_callback(app):
+    client, auth = app
+    auth.config = replace(auth.config, redirect_uris=("*",))
+    callback = "com.example.desktop:/oauth/callback"
+    client_id = register(client, callback)
+    accepted = begin(client, client_id, callback=callback)
+    assert accepted.status_code == 302
+    assert urlsplit(accepted.headers["location"]).path == "/login"
+
+
+def test_dynamic_registration_rejects_unsafe_callbacks(app):
+    client, auth = app
+    auth.config = replace(auth.config, redirect_uris=("*",))
+    for callback in (
+        "http://attacker.example/callback",
+        "javascript:alert(1)",
+        "file:///tmp/oauth",
+        "vscode://callback",
+        "https://client.example/callback#fragment",
+        "https://user@client.example/callback",
+        "https://client.example/*",
+    ):
+        result = client.post(
+            "/register",
+            json={
+                "redirect_uris": [callback],
+                "token_endpoint_auth_method": "none",
+                "grant_types": ["authorization_code", "refresh_token"],
+                "response_types": ["code"],
+                "scope": SCOPE,
+            },
+        )
+        assert result.status_code == 400, (callback, result.text)
+
+
+def test_authorization_errors_never_redirect_to_untrusted_callbacks(app):
+    client, auth = app
+    auth.config = replace(auth.config, redirect_uris=("*",))
+    client_id = register(client, "https://attacker.example/callback")
+    response = begin(client, client_id, scope="unknown")
+    assert response.status_code == 400
+    assert response.json()["error"] == "invalid_request"
+    assert "location" not in response.headers
 
 
 def test_pkce_code_replay_and_token_resource(app):
@@ -370,12 +448,19 @@ def test_request_boundary(app):
         {"password_hash": "password"},
         {"redirect_uris": ()},
         {"redirect_uris": ("https://chatgpt.com/*",)},
+        {"redirect_uris": ("*", CALLBACK)},
+        {"redirect_uris": ("http://attacker.example/callback",)},
+        {"redirect_uris": ("vscode://callback",)},
         {"username": ""},
     ],
 )
 def test_fail_closed_configuration(settings, change):
     with pytest.raises(ValueError):
         replace(settings, **change)
+
+
+def test_open_dynamic_registration_configuration(settings):
+    assert replace(settings, redirect_uris=("*",)).redirect_uris == ("*",)
 
 
 def test_store_consumes_code_atomically(tmp_path):
