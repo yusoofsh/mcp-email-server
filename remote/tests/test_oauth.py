@@ -244,9 +244,7 @@ def test_login_page_allows_cross_origin_navigation_but_checks_host(app):
     assert "Connect your email" in page.text
 
     another_location = begin(client, register(client)).headers["location"]
-    rejected = client.get(
-        another_location, headers={"host": "evil.test", "origin": "https://client.test"}
-    )
+    rejected = client.get(another_location, headers={"host": "evil.test", "origin": "https://client.test"})
     assert rejected.status_code == 400
     assert rejected.json() == {"error": "invalid_host"}
 
