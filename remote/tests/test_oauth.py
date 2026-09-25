@@ -231,9 +231,7 @@ def test_login_without_origin_still_requires_csrf(app):
 def test_login_accepts_foreign_origin_only_with_csrf(app):
     client, _ = app
     form = form_for(client, register(client))
-    forged = client.post(
-        "/login", data={**form, "csrf": "forged"}, headers={"origin": "https://evil.test"}
-    )
+    forged = client.post("/login", data={**form, "csrf": "forged"}, headers={"origin": "https://evil.test"})
     assert forged.status_code == 403
     assert forged.json() == {"error": "invalid_csrf"}
     response = client.post("/login", data=form, headers={"origin": "https://evil.test"})
