@@ -204,6 +204,12 @@ publish job only those unchanged verified bytes. A separately scoped
 container under the canonical repository owner only after all validation jobs
 succeed. Plugin metadata is not part of application release stamping.
 
+The fork's CI also publishes the standard Streamable HTTP image only after the
+`Main` workflow succeeds for a push to `main`. It checks out that run's exact
+commit and publishes the root `Dockerfile` to GHCR as `standard` and
+`standard-<commit-sha>`; these tags stay separate from the OAuth image published
+by `remote-ci` as `latest`, `main`, and `sha-<commit-sha>`.
+
 ## Artifact Contract
 
 The wheel contains only runtime Python/package resources and the complete

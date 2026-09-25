@@ -4,6 +4,13 @@ Repository: https://github.com/yusoofsh/mcp-email-server
 
 Image: `ghcr.io/yusoofsh/mcp-email-server:latest`
 
+This page covers the OAuth image built from `Dockerfile.remote`. The standard
+image built from the repository's root `Dockerfile` is published separately as
+`ghcr.io/yusoofsh/mcp-email-server:standard` and
+`ghcr.io/yusoofsh/mcp-email-server:standard-<commit-sha>`. It provides the
+upstream Streamable HTTP transport without OAuth; put it behind a reverse proxy
+that authenticates requests, as described in [Transports](transports.md#reverse-proxies).
+
 Both `linux/amd64` and `linux/arm64` are built and smoke-tested natively. Prefer
 `sha-<full-commit-sha>` or a registry digest for a pinned deployment. `main` and
 `latest` advance only after tests and both architecture builds succeed.

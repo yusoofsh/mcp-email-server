@@ -158,6 +158,13 @@ rebuild and installed/`uvx` UI smokes. Relevant changes should still run
 `make test-browser` and `make test-e2e` locally before they are pushed so
 failures can be diagnosed without waiting for CI.
 
+After the `Main` workflow succeeds for a push to `main`, the separate
+`Standard Container to GHCR` workflow publishes the root `Dockerfile` as
+`ghcr.io/yusoofsh/mcp-email-server:standard` and an immutable
+`:standard-<commit-sha>` tag. The `remote-ci` workflow publishes the OAuth image
+from `Dockerfile.remote` under its existing `latest`, `main`, and `sha-<commit>`
+tags; keep the two image variants distinct.
+
 9. Commit your changes and push your branch to GitHub:
 
 ```bash
