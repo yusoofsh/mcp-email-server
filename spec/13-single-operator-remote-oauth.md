@@ -58,5 +58,7 @@ resource, and one-time use.
    redirects; denying consent stays on the authorization server.
 5. Registration limits, single-operator/full-mailbox permission, callback rules,
    and operational reset guidance are documented and covered by CI checks.
-6. Login rejects a supplied foreign Origin. When Origin is absent, the
-   ticket-bound CSRF token and secure browser cookie are both required.
+6. Cross-origin navigation may open the ticketed login page only with the
+   configured Host and a valid ticket. Login POST rejects a supplied foreign
+   Origin; when Origin is absent, both the ticket-bound CSRF token and secure
+   browser cookie are required.

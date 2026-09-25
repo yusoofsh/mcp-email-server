@@ -721,10 +721,11 @@ reduce DNS rebinding risk. Network exposure still requires appropriate
 authentication, authorization, TLS termination, and firewall policy around the
 server.
 
-The hosted OAuth login rejects any supplied `Origin` that differs from its
-configured public origin. A browser that omits `Origin` may submit the login
-form only when both the ticket-bound CSRF token and secure, same-site browser
-cookie are valid. Host validation and mismatched-Origin rejection remain active.
+The hosted OAuth login page permits cross-origin `GET` navigation so an MCP
+client can open the consent flow. It still validates Host and requires a valid,
+short-lived ticket. The form `POST` rejects any supplied foreign Origin. A
+browser that omits Origin may submit it only when both the ticket-bound CSRF
+token and secure, same-site browser cookie are valid.
 
 See [Transports](transports.md#dns-rebinding-protection) for allowed host and
 origin settings.

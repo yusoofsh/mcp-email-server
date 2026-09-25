@@ -31,7 +31,12 @@ class Boundary:
         ):
             error = "invalid_host"
         origin = headers.get(b"origin")
-        if origin is not None and origin.decode("latin-1") != self.settings.public_url:
+        login_navigation = path == "/login" and scope["method"] == "GET"
+        if (
+            origin is not None
+            and origin.decode("latin-1") != self.settings.public_url
+            and not login_navigation
+        ):
             error, status = "invalid_origin", 403
         if len(scope.get("query_string", b"")) > 8192:
             error, status = "request_too_large", 413

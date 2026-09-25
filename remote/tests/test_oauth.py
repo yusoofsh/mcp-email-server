@@ -236,6 +236,21 @@ def test_login_rejects_foreign_origin(app):
     assert response.json() == {"error": "invalid_origin"}
 
 
+def test_login_page_allows_cross_origin_navigation_but_checks_host(app):
+    client, _ = app
+    location = begin(client, register(client)).headers["location"]
+    page = client.get(location, headers={"origin": "https://client.test"})
+    assert page.status_code == 200
+    assert "Connect your email" in page.text
+
+    another_location = begin(client, register(client)).headers["location"]
+    rejected = client.get(
+        another_location, headers={"host": "evil.test", "origin": "https://client.test"}
+    )
+    assert rejected.status_code == 400
+    assert rejected.json() == {"error": "invalid_host"}
+
+
 def test_consent_deny(app):
     client, _ = app
     form = form_for(client, register(client))

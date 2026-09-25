@@ -163,10 +163,13 @@ The login screen is the normal path. Basic credentials can be supplied to its
 POST endpoint only alongside its browser cookie, CSRF token and explicit consent;
 **Basic is never accepted as MCP authorization**.
 
-The server rejects a supplied `Origin` that differs from the configured public
-origin. Some embedded browsers omit `Origin` on form submissions; those login
-requests still require both the ticket-bound CSRF token and the secure,
-same-site browser cookie. A missing `Origin` does not bypass either check.
+The login-page `GET` supports cross-origin browser navigation from an MCP client
+and still requires the configured Host and a valid, short-lived authorization
+ticket. The form `POST` rejects a supplied `Origin` that differs from the
+configured public origin. Some embedded browsers omit `Origin` on form
+submissions; those requests still require both the ticket-bound CSRF token and
+the secure, same-site browser cookie. A missing `Origin` does not bypass either
+check.
 
 ## CI and image access
 

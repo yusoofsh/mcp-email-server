@@ -597,10 +597,12 @@ avoid configuring an explicit allowlist.
 
 See [DNS rebinding protection](transports.md#dns-rebinding-protection).
 
-For hosted OAuth, `invalid_origin` means the request supplied an Origin other
-than `MCP_PUBLIC_URL`. Use the advertised HTTPS hostname. The login form can
-also be submitted by embedded browsers that omit Origin, but only when its
-one-time CSRF token and secure browser cookie both match.
+For hosted OAuth, start the connection in your MCP client and follow its
+ticketed consent link; opening `/login` directly has no authorization ticket.
+The login page allows the cross-origin `GET` navigation from that client while
+still checking Host and ticket. Its form rejects a supplied foreign Origin; if
+Origin is omitted, the one-time CSRF token and secure browser cookie must both
+match.
 
 ## Legacy import reports a conflict or missing credential
 
