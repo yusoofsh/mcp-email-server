@@ -34,13 +34,20 @@ STATIC_PREFIX = "mcp_email_server/web_ui/static/"
 _LAUNCH_URL = re.compile(r"http://127\.0\.0\.1:\d+/manage-[A-Za-z0-9_-]+/#bootstrap=[A-Za-z0-9_-]+")
 
 
-def _start_ui_in_terminal(command: list[str], *, environment: dict[str, str]) -> tuple[subprocess.Popen[bytes], int, str]:
+def _start_ui_in_terminal(
+    command: list[str], *, environment: dict[str, str]
+) -> tuple[subprocess.Popen[bytes], int, str]:
     if pty is None:
         raise RuntimeError("PTY-backed UI smoke is unavailable on this platform")
     master, slave = pty.openpty()
     try:
         process = subprocess.Popen(  # noqa: S603 - exact test-owned executable and arguments
-            command, stdin=subprocess.DEVNULL, stdout=slave, stderr=slave, env=environment, start_new_session=True,
+            command,
+            stdin=subprocess.DEVNULL,
+            stdout=slave,
+            stderr=slave,
+            env=environment,
+            start_new_session=True,
         )
     finally:
         os.close(slave)
@@ -94,9 +101,15 @@ def _assert_authenticated_ui(launch_url: str) -> None:
         assert b"Local Email Management" in html
         assert response.headers["Cache-Control"] == "no-store"
     bootstrap = urllib.request.Request(  # noqa: S310 - exact loopback child process
-        urllib.parse.urljoin(base, "api/bootstrap"), data=b"{}", method="POST",
-        headers={"Authorization": f"Bearer {token}", "Content-Type": "application/json",
-                 "Origin": origin, "Sec-Fetch-Site": "same-origin"},
+        urllib.parse.urljoin(base, "api/bootstrap"),
+        data=b"{}",
+        method="POST",
+        headers={
+            "Authorization": f"Bearer {token}",
+            "Content-Type": "application/json",
+            "Origin": origin,
+            "Sec-Fetch-Site": "same-origin",
+        },
     )
     with opener.open(bootstrap, timeout=10) as response:
         exchange = json.loads(response.read())
@@ -116,8 +129,11 @@ def _release_distributions() -> Path | None:
 
 def _static_files(wheel: Path) -> dict[str, bytes]:
     with zipfile.ZipFile(wheel) as archive:
-        return {name.removeprefix(STATIC_PREFIX): archive.read(name) for name in archive.namelist()
-                if name.startswith(STATIC_PREFIX) and not name.endswith("/")}
+        return {
+            name.removeprefix(STATIC_PREFIX): archive.read(name)
+            for name in archive.namelist()
+            if name.startswith(STATIC_PREFIX) and not name.endswith("/")
+        }
 
 
 def _static_digest(files: dict[str, bytes]) -> str:
@@ -159,10 +175,22 @@ def _workflow_job_runs(path: Path, job_name: str) -> list[str]:
 def test_container_build_context_and_runtime_copy_are_restricted() -> None:
     dockerignore = (REPOSITORY / ".dockerignore").read_text(encoding="utf-8").splitlines()
     assert dockerignore == [
-        "**", "!README.md", "!LICENSE", "!pyproject.toml", "!uv.lock",
-        "!mcp_email_server/", "!mcp_email_server/**", "!remote/",
-        "!remote/pyproject.toml", "!remote/requirements-runtime.txt", "!remote/src/", "!remote/src/**",
-        "**/__pycache__", "**/*.pyc", "**/.env", "**/secrets",
+        "**",
+        "!README.md",
+        "!LICENSE",
+        "!pyproject.toml",
+        "!uv.lock",
+        "!mcp_email_server/",
+        "!mcp_email_server/**",
+        "!remote/",
+        "!remote/pyproject.toml",
+        "!remote/requirements-runtime.txt",
+        "!remote/src/",
+        "!remote/src/**",
+        "**/__pycache__",
+        "**/*.pyc",
+        "**/.env",
+        "**/secrets",
     ]
     dockerfile = (REPOSITORY / "Dockerfile").read_text(encoding="utf-8")
     project = tomllib.loads((REPOSITORY / "pyproject.toml").read_text(encoding="utf-8"))
@@ -186,28 +214,42 @@ def test_distribution_is_node_free_and_embeds_reproducible_ui(tmp_path: Path) ->
     if distributions is None:
         distributions = tmp_path / "distributions"
         subprocess.run(  # noqa: S603 - controlled test command
-            [uv, "build", "--out-dir", str(distributions)], cwd=REPOSITORY, check=True, capture_output=True, text=True,
+            [uv, "build", "--out-dir", str(distributions)],
+            cwd=REPOSITORY,
+            check=True,
+            capture_output=True,
+            text=True,
         )
     sdist = next(distributions.glob("*.tar.gz"))
     wheel = next(distributions.glob("*.whl"))
     with zipfile.ZipFile(wheel) as archive:
         wheel_names = set(archive.namelist())
-        wheel_runtime = {name: archive.read(name) for name in wheel_names
-                         if name.startswith("mcp_email_server/") and not name.endswith("/")}
+        wheel_runtime = {
+            name: archive.read(name)
+            for name in wheel_names
+            if name.startswith("mcp_email_server/") and not name.endswith("/")
+        }
         entry_points_name = next(name for name in wheel_names if name.endswith(".dist-info/entry_points.txt"))
         entry_points = archive.read(entry_points_name).decode("utf-8")
     assert "mcp-email-server = mcp_email_server.cli:app" in entry_points
     assert "mcp-email-server-plugin = mcp_email_server.cli:plugin_stdio" in entry_points
-    expected_runtime = {path.relative_to(REPOSITORY).as_posix(): path.read_bytes()
-                        for path in (REPOSITORY / "mcp_email_server").rglob("*")
-                        if path.is_file() and "__pycache__" not in path.parts and path.suffix != ".pyc"}
+    expected_runtime = {
+        path.relative_to(REPOSITORY).as_posix(): path.read_bytes()
+        for path in (REPOSITORY / "mcp_email_server").rglob("*")
+        if path.is_file() and "__pycache__" not in path.parts and path.suffix != ".pyc"
+    }
     assert wheel_runtime == expected_runtime
-    assert all(name.startswith("mcp_email_server/") or name.split("/", maxsplit=1)[0].endswith(".dist-info")
-               for name in wheel_names)
+    assert all(
+        name.startswith("mcp_email_server/") or name.split("/", maxsplit=1)[0].endswith(".dist-info")
+        for name in wheel_names
+    )
     assert len([name for name in wheel_names if name.endswith(".dist-info/licenses/LICENSE")]) == 1
     packaged = _static_files(wheel)
-    staged = {path.relative_to(REPOSITORY / STATIC_PREFIX).as_posix(): path.read_bytes()
-              for path in (REPOSITORY / STATIC_PREFIX).rglob("*") if path.is_file()}
+    staged = {
+        path.relative_to(REPOSITORY / STATIC_PREFIX).as_posix(): path.read_bytes()
+        for path in (REPOSITORY / STATIC_PREFIX).rglob("*")
+        if path.is_file()
+    }
     assert packaged == staged
     assert set(packaged) >= {"index.html", "THIRD_PARTY_NOTICES.md"}
     assert any(name.startswith("assets/") and name.endswith(".js") for name in packaged)
@@ -218,21 +260,43 @@ def test_distribution_is_node_free_and_embeds_reproducible_ui(tmp_path: Path) ->
         archive.extractall(extracted, filter="data")
     source = next(extracted.iterdir())
     for required in (
-        "frontend/package.json", "frontend/package-lock.json", "frontend/THIRD_PARTY_NOTICES.md",
-        "frontend/embedded-assets.json", "frontend/src/App.tsx", "frontend/e2e/local-management.spec.ts",
-        "frontend/playwright.config.ts", "mcp_email_server/web_ui/static/index.html",
-        "mcp_email_server/web_ui/static/THIRD_PARTY_NOTICES.md", ".agents/plugins/marketplace.json",
-        ".claude-plugin/marketplace.json", ".dockerignore", ".github/actions/setup-python-env/action.yml",
-        ".github/workflows/main.yml", ".pre-commit-config.yaml", "Dockerfile",
-        "remote/pyproject.toml", "remote/requirements-runtime.txt", "remote/src/email_mcp_remote/server.py",
-        "remote/scripts/verify_container.py", "remote/scripts/promote_image.py", "deploy/compose.yaml",
-        "plugins/mcp-email-server/.codex-plugin/plugin.json", "plugins/mcp-email-server/.claude-plugin/plugin.json",
-        "plugins/mcp-email-server/.mcp.json", "plugins/mcp-email-server/skills/safe-email-operations/SKILL.md",
+        "frontend/package.json",
+        "frontend/package-lock.json",
+        "frontend/THIRD_PARTY_NOTICES.md",
+        "frontend/embedded-assets.json",
+        "frontend/src/App.tsx",
+        "frontend/e2e/local-management.spec.ts",
+        "frontend/playwright.config.ts",
+        "mcp_email_server/web_ui/static/index.html",
+        "mcp_email_server/web_ui/static/THIRD_PARTY_NOTICES.md",
+        ".agents/plugins/marketplace.json",
+        ".claude-plugin/marketplace.json",
+        ".dockerignore",
+        ".github/actions/setup-python-env/action.yml",
+        ".github/workflows/main.yml",
+        ".pre-commit-config.yaml",
+        "Dockerfile",
+        "remote/pyproject.toml",
+        "remote/requirements-runtime.txt",
+        "remote/src/email_mcp_remote/server.py",
+        "remote/scripts/verify_container.py",
+        "remote/scripts/promote_image.py",
+        "deploy/compose.yaml",
+        "plugins/mcp-email-server/.codex-plugin/plugin.json",
+        "plugins/mcp-email-server/.claude-plugin/plugin.json",
+        "plugins/mcp-email-server/.mcp.json",
+        "plugins/mcp-email-server/skills/safe-email-operations/SKILL.md",
         "plugins/mcp-email-server/skills/safe-email-operations/references/installation.md",
         "plugins/mcp-email-server/skills/safe-email-operations/references/safe-commands.md",
-        "dev/build_frontend.py", "dev/set_release_version.py", "dev/verify_container.py",
-        "dev/install_claude_desktop.py", "dev/claude_desktop_config.json", "dev/greenmail/compose.yml",
-        "dev/greenmail/file_keyring.py", "dev/greenmail/run-e2e.sh", "LICENSE",
+        "dev/build_frontend.py",
+        "dev/set_release_version.py",
+        "dev/verify_container.py",
+        "dev/install_claude_desktop.py",
+        "dev/claude_desktop_config.json",
+        "dev/greenmail/compose.yml",
+        "dev/greenmail/file_keyring.py",
+        "dev/greenmail/run-e2e.sh",
+        "LICENSE",
     ):
         assert (source / required).is_file()
     assert not (source / "frontend/node_modules").exists()
@@ -250,13 +314,21 @@ def test_distribution_is_node_free_and_embeds_reproducible_ui(tmp_path: Path) ->
     rebuilt = tmp_path / "rebuilt"
     environment = os.environ.copy()
     environment["PATH"] = f"{blockers}{os.pathsep}{environment['PATH']}"
-    subprocess.run(  # noqa: S603 - fixed interpreter and repository script
-        [sys.executable, "dev/build_frontend.py", "--check"], cwd=source, env=environment,
-        check=True, capture_output=True, text=True,
+    subprocess.run(
+        [sys.executable, "dev/build_frontend.py", "--check"],
+        cwd=source,
+        env=environment,
+        check=True,
+        capture_output=True,
+        text=True,
     )
     subprocess.run(  # noqa: S603 - controlled test command
-        [uv, "build", "--wheel", "--out-dir", str(rebuilt)], cwd=source, env=environment,
-        check=True, capture_output=True, text=True,
+        [uv, "build", "--wheel", "--out-dir", str(rebuilt)],
+        cwd=source,
+        env=environment,
+        check=True,
+        capture_output=True,
+        text=True,
     )
     rebuilt_files = _static_files(next(rebuilt.glob("*.whl")))
     assert rebuilt_files == packaged
@@ -271,8 +343,11 @@ def test_isolated_wheel_and_local_uvx_serve_authenticated_ui(tmp_path: Path) -> 
     if distributions is None:
         distributions = tmp_path / "distributions"
         subprocess.run(  # noqa: S603 - controlled test command
-            [uv, "build", "--out-dir", str(distributions)], cwd=REPOSITORY,
-            check=True, capture_output=True, text=True,
+            [uv, "build", "--out-dir", str(distributions)],
+            cwd=REPOSITORY,
+            check=True,
+            capture_output=True,
+            text=True,
         )
     release_wheel = next(distributions.glob("*.whl"))
     extracted = tmp_path / "rebuilt-source"
@@ -289,18 +364,28 @@ def test_isolated_wheel_and_local_uvx_serve_authenticated_ui(tmp_path: Path) -> 
     rebuild_environment["PATH"] = f"{blockers}{os.pathsep}{rebuild_environment['PATH']}"
     rebuilt = tmp_path / "rebuilt-distribution"
     subprocess.run(  # noqa: S603 - controlled test command
-        [uv, "build", "--wheel", "--out-dir", str(rebuilt)], cwd=source, env=rebuild_environment,
-        check=True, capture_output=True, text=True,
+        [uv, "build", "--wheel", "--out-dir", str(rebuilt)],
+        cwd=source,
+        env=rebuild_environment,
+        check=True,
+        capture_output=True,
+        text=True,
     )
     wheel = next(rebuilt.glob("*.whl"))
     environment = tmp_path / "environment"
     subprocess.run(  # noqa: S603 - controlled test command
-        [uv, "venv", "--python", sys.executable, str(environment)], check=True, capture_output=True, text=True,
+        [uv, "venv", "--python", sys.executable, str(environment)],
+        check=True,
+        capture_output=True,
+        text=True,
     )
     python = environment / ("Scripts/python.exe" if os.name == "nt" else "bin/python")
     executable = environment / ("Scripts/mcp-email-server.exe" if os.name == "nt" else "bin/mcp-email-server")
     subprocess.run(  # noqa: S603 - controlled test command
-        [uv, "pip", "install", "--python", str(python), str(wheel)], check=True, capture_output=True, text=True,
+        [uv, "pip", "install", "--python", str(python), str(wheel)],
+        check=True,
+        capture_output=True,
+        text=True,
     )
     run_root = tmp_path / "run"
     run_root.mkdir(mode=0o700)
@@ -308,7 +393,8 @@ def test_isolated_wheel_and_local_uvx_serve_authenticated_ui(tmp_path: Path) -> 
     runtime_environment = os.environ.copy()
     runtime_environment["MCP_EMAIL_SERVER_CONFIG_PATH"] = str(run_root / "config.toml")
     process, terminal, launch_url = _start_ui_in_terminal(
-        [str(executable), "ui", "--no-open", "--port", "0"], environment=runtime_environment,
+        [str(executable), "ui", "--no-open", "--port", "0"],
+        environment=runtime_environment,
     )
     try:
         _assert_authenticated_ui(launch_url)
@@ -338,7 +424,8 @@ def test_one_pipeline_gates_latest_on_exact_native_image_checks() -> None:
     assert matrix["strategy"]["matrix"]["python-version"] == ["3.11", "3.12", "3.13", "3.14"]  # type: ignore[index]
     image = _workflow_job(main, "image")
     assert image["strategy"]["matrix"]["include"] == [  # type: ignore[index]
-        {"arch": "amd64", "runner": "ubuntu-24.04"}, {"arch": "arm64", "runner": "ubuntu-24.04-arm"},
+        {"arch": "amd64", "runner": "ubuntu-24.04"},
+        {"arch": "arm64", "runner": "ubuntu-24.04-arm"},
     ]
     steps = _workflow_steps(main, "image")
     smoke = next(step for step in steps if step.get("name") == "Verify the exact image with canonical Compose")
@@ -349,8 +436,16 @@ def test_one_pipeline_gates_latest_on_exact_native_image_checks() -> None:
     assert "tags" not in candidate["with"]  # type: ignore[operator]
     publish = _workflow_job(main, "publish")
     assert set(publish["needs"]) == {  # type: ignore[arg-type]
-        "quality", "documentation", "artifacts", "frontend", "browser-e2e", "greenmail-e2e",
-        "windows-native", "tests-and-type-check", "oauth-tests", "image",
+        "quality",
+        "documentation",
+        "artifacts",
+        "frontend",
+        "browser-e2e",
+        "greenmail-e2e",
+        "windows-native",
+        "tests-and-type-check",
+        "oauth-tests",
+        "image",
     }
     assert publish["concurrency"] == {"group": "email-mcp-latest", "cancel-in-progress": False}
     assert publish["permissions"] == {"contents": "read", "packages": "write"}

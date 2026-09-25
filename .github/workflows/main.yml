@@ -267,7 +267,19 @@ jobs:
 
   publish:
     name: Promote verified latest
-    needs: [quality, documentation, artifacts, frontend, browser-e2e, greenmail-e2e, windows-native, tests-and-type-check, oauth-tests, image]
+    needs:
+      [
+        quality,
+        documentation,
+        artifacts,
+        frontend,
+        browser-e2e,
+        greenmail-e2e,
+        windows-native,
+        tests-and-type-check,
+        oauth-tests,
+        image,
+      ]
     if: github.repository == 'yusoofsh/mcp-email-server' && github.ref == 'refs/heads/main' && github.event_name != 'pull_request'
     runs-on: ubuntu-24.04
     timeout-minutes: 5

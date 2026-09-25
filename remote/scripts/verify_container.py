@@ -81,6 +81,19 @@ class Client:
         raise AssertionError("OAuth HTTP service did not become ready")
 
 
+def connect_compose(compose: list[str], env: dict[str, str], *, restart: bool = False) -> Client:
+    """Resolve the current endpoint; Docker can remap an ephemeral port on restart."""
+    if restart:
+        run(compose + ["restart", "email-mcp"], env=env)
+    endpoint = run(compose + ["port", "email-mcp", "9557"], env=env)
+    host, separator, port = endpoint.rpartition(":")
+    if host != "127.0.0.1" or not separator or not port.isdecimal() or not 1 <= int(port) <= 65535:
+        raise AssertionError("Compose must expose exactly one concrete IPv4 loopback port")
+    client = Client(int(port))
+    client.wait()
+    return client
+
+
 def verify(image: str, expected_version: str | None, source: str | None, report: Path | None):
     metadata = json.loads(run(["docker", "image", "inspect", image]))[0]
     assert metadata["Config"]["User"] == "10001:10001", "Image must default to non-root"
@@ -133,9 +146,7 @@ def verify(image: str, expected_version: str | None, source: str | None, report:
             assert all(port["host_ip"] == "127.0.0.1" for port in service["ports"])
             # Never re-pull a candidate: test the exact locally loaded image reference.
             run(compose + ["up", "-d", "--pull", "never"], env=env)
-            port = int(run(compose + ["port", "email-mcp", "9557"], env=env).rsplit(":", 1)[1])
-            client = Client(port)
-            client.wait()
+            client = connect_compose(compose, env)
             if expected_version:
                 actual = run(
                     compose + ["exec", "-T", "email-mcp", "/opt/email/bin/mcp-email-server", "--version"],
@@ -278,8 +289,7 @@ def verify(image: str, expected_version: str | None, source: str | None, report:
             listed = rpc("tools/list")["tools"]
             expected = json.loads((ROOT / "tests/fixtures/mcp_catalog.json").read_text())["tools"]
             assert {tool["name"] for tool in listed} == {tool["name"] for tool in expected}
-            run(compose + ["restart", "email-mcp"], env=env)
-            client.wait()
+            client = connect_compose(compose, env, restart=True)
             rpc("tools/list")
             status, _, body = client.request(
                 "/token",

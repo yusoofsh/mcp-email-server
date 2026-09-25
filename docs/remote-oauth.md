@@ -4,16 +4,11 @@ Repository: https://github.com/yusoofsh/mcp-email-server
 
 Image: `ghcr.io/yusoofsh/mcp-email-server:latest`
 
-This page covers the OAuth image built from `Dockerfile.remote`. The standard
-image built from the repository's root `Dockerfile` is published separately as
-`ghcr.io/yusoofsh/mcp-email-server:standard` and
-`ghcr.io/yusoofsh/mcp-email-server:standard-<commit-sha>`. It provides the
-upstream Streamable HTTP transport without OAuth; put it behind a reverse proxy
-that authenticates requests, as described in [Transports](transports.md#reverse-proxies).
-
-Both `linux/amd64` and `linux/arm64` are built and smoke-tested natively. Prefer
-`sha-<full-commit-sha>` or a registry digest for a pinned deployment. `main` and
-`latest` advance only after tests and both architecture builds succeed.
+The repository's root `Dockerfile` builds the single supported OAuth image.
+`deploy/compose.yaml` is the canonical deployment, and `latest` is the only
+published tag. Both `linux/amd64` and `linux/arm64` images are tested natively.
+Pin the recorded registry digest when an exact artifact is required; `latest`
+is intentionally mutable and is not a version or an immutability guarantee.
 
 ## What you need
 
@@ -160,11 +155,18 @@ POST endpoint only alongside its browser cookie, CSRF token and explicit consent
 
 ## CI and image access
 
-[Remote OAuth CI and GHCR](https://github.com/yusoofsh/mcp-email-server/blob/main/.github/workflows/remote-ci.yml) runs the new auth suite,
-upstream regression tests, and native container smoke tests before updating the
-multi-architecture release tags. PRs do not publish. Publishing uses the repository's
-`GITHUB_TOKEN` with `packages:write` only in publishing jobs. No custom PAT is needed
-for Actions. Official actions are pinned by commit SHA.
+[Main CI and GHCR](https://github.com/yusoofsh/mcp-email-server/actions/workflows/main.yml)
+runs the full email, OAuth, packaging, browser, Windows and documentation checks.
+Each native architecture candidate is built once and exercised by digest using
+canonical Compose, HTTP OAuth, the complete tool catalog, restart persistence,
+refresh and revocation. The random test port is rediscovered after a restart.
+
+A single serialized publication step checks that the source is still current
+`main`, then promotes only the two verified digests to `latest` without rebuilding.
+Failed or stale runs leave `latest` unchanged. Pull requests do not publish.
+Publishing uses the repository's `GITHUB_TOKEN` with `packages:write` only where
+needed; no custom PAT is required by Actions. Old deployment variants are not
+published. Existing mailbox volumes are never removed by this release workflow.
 
 A newly created GHCR package may initially be private even when its repository is
 public. Set the package visibility to public for anonymous pulls, or authenticate
@@ -174,7 +176,7 @@ first publication. No PAT belongs in Compose or the container image.
 For source builds:
 
 ```bash
-docker build -f Dockerfile.remote -t email-mcp:local .
+docker build -t email-mcp:local .
 docker run --rm email-mcp:local smoke-engine
 ```
 

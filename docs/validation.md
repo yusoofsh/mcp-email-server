@@ -44,11 +44,11 @@ tests. Coverage data from those processes is combined into the same XML report
 as in-process tests, so process-boundary behavior is not treated as unexecuted
 code.
 
-The complete local suite enforces an 80% aggregate minimum. Codecov applies an
-80% project target with a 0.5 percentage-point tolerance for environment noise
-and a strict 80% target for changed lines. These values are an enforceable
-baseline, not a ceiling: changes should test meaningful success, failure, and
-security boundaries rather than add assertions solely to reach a percentage.
+The complete local suite enforces an 80% aggregate minimum through the pytest
+coverage configuration and the Main workflow. There is no external Codecov gate.
+This is an enforceable baseline, not a ceiling: changes should test meaningful
+success, failure, and security boundaries rather than add assertions solely to
+reach a percentage.
 The baseline can be raised as coverage improves without excluding production
 modules from measurement.
 

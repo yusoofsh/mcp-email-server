@@ -100,8 +100,8 @@ make container-check
 ```
 
 `make test` combines coverage from the main pytest process and Python
-subprocesses, then enforces the 80% aggregate project baseline. Codecov also
-requires 80% coverage for changed lines. A focused diagnostic run may use
+subprocesses, then enforces the 80% aggregate project baseline. Coverage is
+validated in the repository test jobs; there is no external Codecov gate. A focused diagnostic run may use
 `--cov-fail-under=0`, but the complete suite must pass the configured threshold
 before submission. Add tests for meaningful behavior and failure or security
 boundaries rather than percentage-only execution.
@@ -158,12 +158,15 @@ rebuild and installed/`uvx` UI smokes. Relevant changes should still run
 `make test-browser` and `make test-e2e` locally before they are pushed so
 failures can be diagnosed without waiting for CI.
 
-After the `Main` workflow succeeds for a push to `main`, the separate
-`Standard Container to GHCR` workflow publishes the root `Dockerfile` as
-`ghcr.io/yusoofsh/mcp-email-server:standard` and an immutable
-`:standard-<commit-sha>` tag. The `remote-ci` workflow publishes the OAuth image
-from `Dockerfile.remote` under its existing `latest`, `main`, and `sha-<commit>`
-tags; keep the two image variants distinct.
+The single `Main` workflow also builds the root `Dockerfile` on native AMD64
+and ARM64 runners. It tests each candidate by digest through `deploy/compose.yaml`
+and the real OAuth HTTP flow, including restart persistence and revocation.
+After all validation jobs pass, a serialized promotion step verifies that the
+source is still current `main` and publishes those exact tested images as
+`ghcr.io/yusoofsh/mcp-email-server:latest`, without rebuilding. This floating tag
+is intentionally mutable; the run summary records the exact registry digest.
+Pull requests, failed runs and stale source commits cannot promote `latest`.
+The independent `remote/` Python environment is tested in the same workflow.
 
 9. Commit your changes and push your branch to GitHub:
 

@@ -157,7 +157,7 @@ Before delivery, all of the following pass from a clean checkout:
    lock entry;
 2. formatting, lint, type checking, lock consistency, and full Python tests with
    combined in-process/subprocess statement-and-branch coverage at or above the
-   configured 80% aggregate threshold, plus an 80% changed-line Codecov target;
+   configured 80% aggregate threshold;
 3. documentation strict build and link/cross-reference validation;
 4. GreenMail stdio E2E;
 5. frontend `npm ci`, lint, typecheck, unit tests, and production build;
@@ -204,11 +204,15 @@ publish job only those unchanged verified bytes. A separately scoped
 container under the canonical repository owner only after all validation jobs
 succeed. Plugin metadata is not part of application release stamping.
 
-The fork's CI also publishes the standard Streamable HTTP image only after the
-`Main` workflow succeeds for a push to `main`. It checks out that run's exact
-commit and publishes the root `Dockerfile` to GHCR as `standard` and
-`standard-<commit-sha>`; these tags stay separate from the OAuth image published
-by `remote-ci` as `latest`, `main`, and `sha-<commit-sha>`.
+The fork has one deployment contract: root `Dockerfile`, canonical
+`deploy/compose.yaml`, and one `Main` workflow. Native AMD64 and ARM64 candidates
+must each pass the real OAuth HTTP/Compose smoke, full tool discovery, restart
+persistence and revocation. Candidates are referenced by their tested digests;
+publication must not rebuild. Under a shared publisher lock, only a source
+commit that is still current `main` may promote both candidates to the mutable
+`latest` tag. The exact resulting registry digest is recorded for pinning.
+There are no alternate container variants, cloud deployments or external
+coverage-service publication gates in this fork.
 
 ## Artifact Contract
 
