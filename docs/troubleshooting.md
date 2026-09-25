@@ -597,6 +597,11 @@ avoid configuring an explicit allowlist.
 
 See [DNS rebinding protection](transports.md#dns-rebinding-protection).
 
+For hosted OAuth, `invalid_origin` means the request supplied an Origin other
+than `MCP_PUBLIC_URL`. Use the advertised HTTPS hostname. The login form can
+also be submitted by embedded browsers that omit Origin, but only when its
+one-time CSRF token and secure browser cookie both match.
+
 ## Legacy import reports a conflict or missing credential
 
 Run `mcp-email-server config import-legacy` without `--apply` to preview again.

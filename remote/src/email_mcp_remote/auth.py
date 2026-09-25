@@ -217,7 +217,8 @@ including sending mail and returning attachments, subject to your email policies
         return response
 
     async def login_post(self, request: Request):
-        if request.headers.get("origin") != self.config.public_url:
+        origin = request.headers.get("origin")
+        if origin is not None and origin != self.config.public_url:
             return JSONResponse({"error": "invalid_origin"}, status_code=403, headers=NO_STORE)
         form = await request.form()
         ticket, csrf = str(form.get("ticket", "")), str(form.get("csrf", ""))

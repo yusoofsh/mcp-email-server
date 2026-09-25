@@ -721,5 +721,10 @@ reduce DNS rebinding risk. Network exposure still requires appropriate
 authentication, authorization, TLS termination, and firewall policy around the
 server.
 
+The hosted OAuth login rejects any supplied `Origin` that differs from its
+configured public origin. A browser that omits `Origin` may submit the login
+form only when both the ticket-bound CSRF token and secure, same-site browser
+cookie are valid. Host validation and mismatched-Origin rejection remain active.
+
 See [Transports](transports.md#dns-rebinding-protection) for allowed host and
 origin settings.

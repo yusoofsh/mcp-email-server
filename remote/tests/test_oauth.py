@@ -213,11 +213,27 @@ def test_password_failure_and_csrf(app):
     client, _ = app
     form = form_for(client, register(client))
     assert client.post("/login", data={**form, "csrf": "forged"}, headers={"origin": BASE}).status_code == 403
-    assert client.post("/login", data=form).status_code == 403
     bad = client.post("/login", data={**form, "password": "wrong"}, headers={"origin": BASE})
     assert bad.status_code == 401
     assert "wrong" not in bad.text and PASSWORD not in bad.text
     assert client.post("/login", data=form, headers={"origin": BASE}).status_code == 303
+
+
+def test_login_without_origin_still_requires_csrf(app):
+    client, _ = app
+    form = form_for(client, register(client))
+    forged = client.post("/login", data={**form, "csrf": "forged"})
+    assert forged.status_code == 403
+    assert forged.json() == {"error": "invalid_csrf"}
+    assert client.post("/login", data=form).status_code == 303
+
+
+def test_login_rejects_foreign_origin(app):
+    client, _ = app
+    form = form_for(client, register(client))
+    response = client.post("/login", data=form, headers={"origin": "https://evil.test"})
+    assert response.status_code == 403
+    assert response.json() == {"error": "invalid_origin"}
 
 
 def test_consent_deny(app):
