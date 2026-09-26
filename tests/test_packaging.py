@@ -195,7 +195,13 @@ def test_container_build_context_and_runtime_copy_are_restricted() -> None:
     dockerfile = (REPOSITORY / "Dockerfile").read_text(encoding="utf-8")
     project = tomllib.loads((REPOSITORY / "pyproject.toml").read_text(encoding="utf-8"))
     uv_requirement = next(r for r in project["dependency-groups"]["dev"] if r.startswith("uv=="))
-    assert f"ARG UV_VERSION={uv_requirement.removeprefix('uv==')}" in dockerfile
+    uv_version = uv_requirement.removeprefix("uv==")
+    uv_image = re.search(
+        rf"^FROM ghcr\.io/astral-sh/uv:{re.escape(uv_version)}@sha256:(?P<digest>[0-9a-f]{{64}}) AS uv$",
+        dockerfile,
+        re.MULTILINE,
+    )
+    assert uv_image is not None
     assert "ghcr.io/astral-sh/uv:latest" not in dockerfile
     assert "COPY . " not in dockerfile
     assert "COPY mcp_email_server ./mcp_email_server" in dockerfile
