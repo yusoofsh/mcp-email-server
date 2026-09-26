@@ -180,7 +180,7 @@ jobs:
           cache: pip
           cache-dependency-path: remote/requirements-ci.txt
       - run: |
-          python -m pip install -r remote/requirements-ci.txt
+          python -m pip install --require-hashes -r remote/requirements-ci.txt
           python -m pip install --no-deps -e remote
       - working-directory: remote
         run: |

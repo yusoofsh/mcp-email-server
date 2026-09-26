@@ -14,7 +14,7 @@ upstream requires MCP SDK v1; this module uses FastMCP 4 / SDK v2.
 
 ```sh
 python3.13 -m venv .venv-remote
-.venv-remote/bin/pip install -r remote/requirements-ci.txt
+.venv-remote/bin/pip install --require-hashes -r remote/requirements-ci.txt
 .venv-remote/bin/pip install --no-deps -e remote
 cd remote
 ../.venv-remote/bin/python -m pytest -q
@@ -22,7 +22,10 @@ cd remote
 ```
 
 `requirements-runtime.txt` and `requirements-ci.txt` pin the tested Linux/Python 3.13
-dependency closures. After deliberately upgrading dependencies in a clean environment,
-run `python remote/scripts/lock_installed.py`, review the diff, and rerun CI on both
-architectures. The upstream `uv.lock` stays untouched. These pins fix versions;
-they are not hash-verified lockfiles.
+dependency closures and include hashes for the published distributions. CI and the
+container build install them with pip's `--require-hashes` mode. After deliberately
+upgrading dependencies in a clean environment, run `python remote/scripts/lock_installed.py`
+to regenerate the pins and hashes with `uv pip compile --generate-hashes`, review the
+diff, and rerun CI on both architectures.
+The upstream `uv.lock` stays authoritative for the engine environment; the remote
+transport remains an independently pinned project.
