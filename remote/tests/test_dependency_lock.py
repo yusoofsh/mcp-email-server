@@ -27,7 +27,13 @@ def _locked_packages(path: Path) -> dict[str, tuple[str, str]]:
 
 
 def test_runtime_and_ci_locks_pin_the_security_floor_with_hashes():
+    expected_versions = {
+        "anyio": "4.14.2",
+        "click": "8.3.3",
+        "cryptography": "50.0.1",
+    }
     for filename in ("requirements-runtime.txt", "requirements-ci.txt"):
         packages = _locked_packages(ROOT / filename)
-        assert packages["anyio"][0] == "4.14.2"
+        for package, version in expected_versions.items():
+            assert packages[package][0] == version
         assert len(packages) >= 70
