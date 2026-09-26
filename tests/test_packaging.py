@@ -203,9 +203,33 @@ def test_container_build_context_and_runtime_copy_are_restricted() -> None:
     )
     assert uv_image is not None
     assert "ghcr.io/astral-sh/uv:latest" not in dockerfile
+    python_images = re.findall(
+        r"^FROM python:3\.13\.15-slim-trixie@sha256:(?P<digest>[0-9a-f]{64}) AS "
+        r"(?P<stage>email-builder|remote-builder|runtime)$",
+        dockerfile,
+        re.MULTILINE,
+    )
+    assert len(python_images) == 3
+    assert len({digest for digest, _stage in python_images}) == 1
+    assert "slim-bookworm" not in dockerfile
     assert "COPY . " not in dockerfile
     assert "COPY mcp_email_server ./mcp_email_server" in dockerfile
     assert "uv sync --frozen --no-dev --no-editable" in dockerfile
+    assert "--only-upgrade openssl tzdata" in dockerfile
+    assert "find /opt/remote/lib/python3.13/site-packages" in dockerfile
+    assert "find /usr/local/lib/python3.13/site-packages" in dockerfile
+    for builder_only_path in (
+        "-name 'pip'",
+        "-name 'pip-*.dist-info'",
+        "-name 'setuptools'",
+        "-name 'setuptools-*.dist-info'",
+        "-name 'pkg_resources'",
+        "-name '_distutils_hack'",
+        "-name 'distutils-precedence.pth'",
+    ):
+        assert dockerfile.count(builder_only_path) == 2
+    assert "/opt/remote/bin/pip3.13" in dockerfile
+    assert "/usr/local/bin/pip3.13" in dockerfile
     assert "COPY --from=email-builder /opt/email /opt/email" in dockerfile
     assert "COPY --from=remote-builder /opt/remote /opt/remote" in dockerfile
     assert "USER 10001:10001" in dockerfile
