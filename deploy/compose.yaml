@@ -1,20 +1,21 @@
+name: email
 services:
-  email-mcp:
-    image: ${MCP_IMAGE:-ghcr.io/yusoofsh/mcp-email-server:latest}
+  proxy:
+    image: ghcr.io/yusoofsh/mcp-email-server@sha256:7740013f935cd2c0d5a7a440acb327718e0a60582d64f55eb2121f2adf968bce
+    pull_policy: missing
     restart: unless-stopped
-    ports:
-      - "127.0.0.1:${MCP_BIND_PORT:-9557}:9557"
+    env_file:
+      - .env
     environment:
-      MCP_HOST: 0.0.0.0
+      MCP_HOST: "0.0.0.0"
       MCP_PORT: "9557"
-      MCP_PUBLIC_URL: ${MCP_PUBLIC_URL:?Set the HTTPS public origin}
-      MCP_AUTH_USERNAME: ${MCP_AUTH_USERNAME:?Set a login username}
-      MCP_AUTH_REDIRECT_URIS: ${MCP_AUTH_REDIRECT_URIS:?Set exact OAuth callback URLs}
-      MCP_AUTH_PASSWORD_HASH_FILE: /run/secrets/mcp_password_hash
-    secrets:
-      - mcp_password_hash
     volumes:
-      - email_data:/data
+      - data:/data
+    ports:
+      - "172.19.0.1:9557:9557"
+    labels:
+      caddy: email.yusoofsh.id
+      caddy.reverse_proxy: "172.19.0.1:9557"
     read_only: true
     tmpfs:
       - /tmp:rw,nosuid,nodev,noexec,size=128m,mode=1777
@@ -22,9 +23,7 @@ services:
     security_opt: [no-new-privileges:true]
     stop_grace_period: 30s
 
-secrets:
-  mcp_password_hash:
-    file: ${MCP_PASSWORD_HASH_FILE:-./secrets/mcp-password.hash}
-
 volumes:
-  email_data:
+  data:
+    external: true
+    name: email-oauth_data
