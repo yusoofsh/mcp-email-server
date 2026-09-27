@@ -81,17 +81,10 @@ class Client:
         raise AssertionError("OAuth HTTP service did not become ready")
 
 
-def compose_service(compose: list[str], env: dict[str, str]) -> str:
-    config = json.loads(run(compose + ["config", "--format", "json"], env=env))
-    for name in ("email-mcp", "proxy"):
-        if name in config.get("services", {}):
-            return name
-    raise AssertionError("Compose must define the canonical email service")
-
-
-def connect_compose(compose: list[str], env: dict[str, str], *, restart: bool = False) -> Client:
+def connect_compose(
+    compose: list[str], env: dict[str, str], *, service: str = "email-mcp", restart: bool = False
+) -> Client:
     """Resolve the current endpoint; Docker can remap an ephemeral port on restart."""
-    service = compose_service(compose, env)
     if restart:
         run(compose + ["restart", service], env=env)
     endpoint = run(compose + ["port", service, "9557"], env=env)
@@ -156,7 +149,7 @@ def verify(image: str, expected_version: str | None, source: str | None, report:
             assert all(port["host_ip"] == "127.0.0.1" for port in service["ports"])
             # Never re-pull a candidate: test the exact locally loaded image reference.
             run(compose + ["up", "-d", "--pull", "never"], env=env)
-            client = connect_compose(compose, env)
+            client = connect_compose(compose, env, service=service_name)
             if expected_version:
                 actual = run(
                     compose + ["exec", "-T", service_name, "/opt/email/bin/mcp-email-server", "--version"],
