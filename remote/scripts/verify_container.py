@@ -297,7 +297,7 @@ def verify(image: str, expected_version: str | None, source: str | None, report:
             listed = rpc("tools/list")["tools"]
             expected = json.loads((ROOT / "tests/fixtures/mcp_catalog.json").read_text())["tools"]
             assert {tool["name"] for tool in listed} == {tool["name"] for tool in expected}
-            client = connect_compose(compose, env, restart=True)
+            client = connect_compose(compose, env, service=service_name, restart=True)
             rpc("tools/list")
             status, _, body = client.request(
                 "/token",
