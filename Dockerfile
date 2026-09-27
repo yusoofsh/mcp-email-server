@@ -56,7 +56,7 @@ ENV PATH="/opt/remote/bin:/opt/email/bin:$PATH" \
     HOME=/data PYTHONDONTWRITEBYTECODE=1 PYTHONUNBUFFERED=1 \
     MCP_EMAIL_COMMAND=/opt/email/bin/mcp-email-server \
     MCP_EMAIL_SERVER_CONFIG_PATH=/data/mail/config.toml \
-    MCP_AUTH_STATE_PATH=/data/auth/oauth.sqlite3 MCP_HOST=0.0.0.0 MCP_PORT=9557
+    MCP_HOST=0.0.0.0 MCP_PORT=9557
 WORKDIR /data
 USER 10001:10001
 EXPOSE 9557
