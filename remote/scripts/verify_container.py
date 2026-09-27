@@ -118,6 +118,10 @@ def verify(image: str, expected_version: str | None, source: str | None, report:
         assert hashed.startswith("$argon2id$")
         empty_env = Path(temporary) / ".env"
         empty_env.write_text("")
+        deploy_env = ROOT / "deploy/.env"
+        deploy_env_existed = deploy_env.exists()
+        if not deploy_env_existed:
+            deploy_env.write_text("")
         override = Path(temporary) / "compose-ci.yaml"
         override.write_text(
             """services:
@@ -348,7 +352,11 @@ volumes:
             )
         finally:
             # Remove only the random synthetic project and its empty volume.
-            run(compose + ["down", "--volumes", "--remove-orphans"], env=env)
+            try:
+                run(compose + ["down", "--volumes", "--remove-orphans"], env=env)
+            finally:
+                if not deploy_env_existed:
+                    deploy_env.unlink(missing_ok=True)
     if report:
         assert source and "@sha256:" in image
         report.parent.mkdir(parents=True, exist_ok=True)
