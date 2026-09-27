@@ -33,7 +33,8 @@ def run(args: list[str], *, env: dict[str, str] | None = None, data: str | None 
     result = subprocess.run(args, env=env, input=data, capture_output=True, text=True, timeout=90)
     if result.returncode:
         # Do not include input or daemon logs, which could contain credentials.
-        raise RuntimeError(f"Command failed: {args[0]} {args[1]} (exit {result.returncode})")
+        detail = next((line.strip() for line in reversed(result.stderr.splitlines()) if line.strip()), "")
+        raise RuntimeError(f"Command failed: {args[0]} {args[1]} (exit {result.returncode}): {detail[:300]}")
     return result.stdout.strip()
 
 
