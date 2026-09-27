@@ -12,6 +12,7 @@ dependencies = [
   "fastmcp==4.0.5",
   "mcp==2.2.0",
   "argon2-cffi==25.1.0",
+  "cryptography>=50.0.1",
   "uvicorn>=0.35,<1",
   "python-multipart>=0.0.20,<1",
 ]

@@ -19,7 +19,7 @@ classifiers = [
 dependencies = [
     "aioimaplib>=2.0.1",
     "aiosmtplib>=4.0.0",
-    "anyio>=4.5",
+    "anyio>=4.14.2",
     "beautifulsoup4>=4.14.3",
     "click>=8.0.0",
     "filelock>=3.32.2",
@@ -65,6 +65,15 @@ dev = [
 [build-system]
 requires = ["hatchling"]
 build-backend = "hatchling.build"
+
+[tool.uv]
+# Keep transitive security fixes in the reproducible application lock even
+# when an upstream dependency advertises a broader range.
+override-dependencies = [
+    "click==8.3.3",
+    "cryptography==50.0.1",
+    "soupsieve==2.9.0",
+]
 
 [tool.hatch.build]
 artifacts = ["mcp_email_server/web_ui/static/**"]
