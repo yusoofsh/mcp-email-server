@@ -29,5 +29,5 @@ services:
 
 volumes:
   data:
-    external: true
+    external: ${MCP_VOLUME_EXTERNAL:-true}
     name: email-oauth_data

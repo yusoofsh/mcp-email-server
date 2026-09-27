@@ -127,6 +127,7 @@ def verify(image: str, expected_version: str | None, source: str | None, report:
             "MCP_ENV_FILE": str(empty_env),
             "MCP_BIND_ADDRESS": "127.0.0.1",
             "MCP_BIND_PORT": "0",
+            "MCP_VOLUME_EXTERNAL": "false",
             "MCP_PUBLIC_URL": PUBLIC,
             "MCP_AUTH_USERNAME": "test-operator",
             "MCP_AUTH_REDIRECT_URIS": "*",
