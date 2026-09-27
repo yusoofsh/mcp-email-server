@@ -133,7 +133,7 @@ def verify(image: str, expected_version: str | None, source: str | None, report:
       MCP_AUTH_USERNAME: ${MCP_AUTH_USERNAME}
       MCP_AUTH_REDIRECT_URIS: ${MCP_AUTH_REDIRECT_URIS}
       MCP_AUTH_PASSWORD_HASH: ${MCP_AUTH_PASSWORD_HASH}
-    ports:
+    ports: !override
       - 127.0.0.1:0:9557
 volumes:
   data:
