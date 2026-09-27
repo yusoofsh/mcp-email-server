@@ -116,24 +116,35 @@ def verify(image: str, expected_version: str | None, source: str | None, report:
         password = secrets.token_urlsafe(36)
         hashed = run(["docker", "run", "--rm", "-i", image, "hash-password", "--stdin"], data=password + "\n")
         assert hashed.startswith("$argon2id$")
-        hash_file = Path(temporary) / "password.hash"
-        hash_file.write_text(hashed + "\n")
-        # Directory is private; the container's non-root UID must read the bound secret.
-        hash_file.chmod(0o444)
         empty_env = Path(temporary) / ".env"
         empty_env.write_text("")
+        override = Path(temporary) / "compose-ci.yaml"
+        override.write_text(
+            """services:
+  proxy:
+    image: ${MCP_IMAGE}
+    env_file:
+      - ${MCP_ENV_FILE}
+    environment:
+      MCP_PUBLIC_URL: ${MCP_PUBLIC_URL}
+      MCP_AUTH_USERNAME: ${MCP_AUTH_USERNAME}
+      MCP_AUTH_REDIRECT_URIS: ${MCP_AUTH_REDIRECT_URIS}
+      MCP_AUTH_PASSWORD_HASH: ${MCP_AUTH_PASSWORD_HASH}
+    ports:
+      - 127.0.0.1:0:9557
+volumes:
+  data:
+    external: false
+"""
+        )
         env = {
             **os.environ,
             "MCP_IMAGE": image,
             "MCP_ENV_FILE": str(empty_env),
-            "MCP_BIND_ADDRESS": "127.0.0.1",
-            "MCP_BIND_PORT": "0",
-            "MCP_VOLUME_EXTERNAL": "false",
             "MCP_PUBLIC_URL": PUBLIC,
             "MCP_AUTH_USERNAME": "test-operator",
             "MCP_AUTH_REDIRECT_URIS": "*",
             "MCP_AUTH_PASSWORD_HASH": hashed,
-            "MCP_PASSWORD_HASH_FILE": str(hash_file),
         }
         compose = [
             "docker",
@@ -144,6 +155,8 @@ def verify(image: str, expected_version: str | None, source: str | None, report:
             str(empty_env),
             "-f",
             str(ROOT / "deploy/compose.yaml"),
+            "-f",
+            str(override),
         ]
         try:
             config = json.loads(run(compose + ["config", "--format", "json"], env=env))

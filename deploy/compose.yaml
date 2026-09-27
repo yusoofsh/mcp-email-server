@@ -1,22 +1,18 @@
 name: email
 services:
   proxy:
-    image: ${MCP_IMAGE:-ghcr.io/yusoofsh/mcp-email-server:latest}
+    image: ghcr.io/yusoofsh/mcp-email-server:latest
     pull_policy: missing
     restart: unless-stopped
     env_file:
-      - ${MCP_ENV_FILE:-.env}
+      - .env
     environment:
       MCP_HOST: "0.0.0.0"
       MCP_PORT: "9557"
-      MCP_PUBLIC_URL: ${MCP_PUBLIC_URL:?Set the HTTPS public origin}
-      MCP_AUTH_USERNAME: ${MCP_AUTH_USERNAME:?Set a login username}
-      MCP_AUTH_REDIRECT_URIS: ${MCP_AUTH_REDIRECT_URIS:-*}
-      MCP_AUTH_PASSWORD_HASH: ${MCP_AUTH_PASSWORD_HASH:?Set the Argon2 password hash}
     volumes:
       - data:/data
     ports:
-      - "${MCP_BIND_ADDRESS:-172.19.0.1}:${MCP_BIND_PORT:-9557}:9557"
+      - "172.19.0.1:9557:9557"
     labels:
       caddy: email.yusoofsh.id
       caddy.reverse_proxy: "172.19.0.1:9557"
@@ -29,5 +25,5 @@ services:
 
 volumes:
   data:
-    external: ${MCP_VOLUME_EXTERNAL:-true}
+    external: true
     name: email-oauth_data
