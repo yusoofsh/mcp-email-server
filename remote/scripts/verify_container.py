@@ -124,10 +124,13 @@ def verify(image: str, expected_version: str | None, source: str | None, report:
         env = {
             **os.environ,
             "MCP_IMAGE": image,
+            "MCP_ENV_FILE": str(empty_env),
+            "MCP_BIND_ADDRESS": "127.0.0.1",
             "MCP_BIND_PORT": "0",
             "MCP_PUBLIC_URL": PUBLIC,
             "MCP_AUTH_USERNAME": "test-operator",
             "MCP_AUTH_REDIRECT_URIS": "*",
+            "MCP_AUTH_PASSWORD_HASH": hashed,
             "MCP_PASSWORD_HASH_FILE": str(hash_file),
         }
         compose = [
