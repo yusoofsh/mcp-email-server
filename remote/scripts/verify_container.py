@@ -81,11 +81,20 @@ class Client:
         raise AssertionError("OAuth HTTP service did not become ready")
 
 
+def compose_service(compose: list[str], env: dict[str, str]) -> str:
+    config = json.loads(run(compose + ["config", "--format", "json"], env=env))
+    for name in ("email-mcp", "proxy"):
+        if name in config.get("services", {}):
+            return name
+    raise AssertionError("Compose must define the canonical email service")
+
+
 def connect_compose(compose: list[str], env: dict[str, str], *, restart: bool = False) -> Client:
     """Resolve the current endpoint; Docker can remap an ephemeral port on restart."""
+    service = compose_service(compose, env)
     if restart:
-        run(compose + ["restart", "email-mcp"], env=env)
-    endpoint = run(compose + ["port", "email-mcp", "9557"], env=env)
+        run(compose + ["restart", service], env=env)
+    endpoint = run(compose + ["port", service, "9557"], env=env)
     host, separator, port = endpoint.rpartition(":")
     if host != "127.0.0.1" or not separator or not port.isdecimal() or not 1 <= int(port) <= 65535:
         raise AssertionError("Compose must expose exactly one concrete IPv4 loopback port")
@@ -140,7 +149,8 @@ def verify(image: str, expected_version: str | None, source: str | None, report:
         ]
         try:
             config = json.loads(run(compose + ["config", "--format", "json"], env=env))
-            service = config["services"]["email-mcp"]
+            service_name = "email-mcp" if "email-mcp" in config["services"] else "proxy"
+            service = config["services"][service_name]
             assert service["environment"]["MCP_HOST"] == "0.0.0.0"
             assert service["read_only"] is True and "ALL" in service["cap_drop"]
             assert all(port["host_ip"] == "127.0.0.1" for port in service["ports"])
@@ -149,12 +159,12 @@ def verify(image: str, expected_version: str | None, source: str | None, report:
             client = connect_compose(compose, env)
             if expected_version:
                 actual = run(
-                    compose + ["exec", "-T", "email-mcp", "/opt/email/bin/mcp-email-server", "--version"],
+                    compose + ["exec", "-T", service_name, "/opt/email/bin/mcp-email-server", "--version"],
                     env=env,
                 )
                 assert actual == expected_version
             run(
-                compose + ["exec", "-T", "email-mcp", "/opt/remote/bin/email-mcp-remote", "smoke-engine"],
+                compose + ["exec", "-T", service_name, "/opt/remote/bin/email-mcp-remote", "smoke-engine"],
                 env=env,
             )
             status, headers, _ = client.request("/mcp", method="POST", payload={})
