@@ -8,9 +8,9 @@ No external identity provider is required.
 ChatGPT / MCP client -> HTTPS proxy -> OAuth MCP -> private stdio -> IMAP / SMTP
 ```
 
-**Image:** `ghcr.io/yusoofsh/mcp-email-server:latest`, for Linux AMD64 and ARM64.
+**Image:** `ghcr.io/yusoofsh/mcp-email-server:latest`, for Linux AMD64.
 The root `Dockerfile` and `deploy/compose.yaml` are the only deployment definitions.
-`latest` is intentionally mutable; CI records its exact digest for audit/rollback.
+`latest` is intentionally mutable and is rebuilt from the `main` branch.
 
 ## Deploy
 
@@ -41,12 +41,9 @@ intact. This is a single-operator service, not multi-tenant mailbox isolation.
 
 ## Validation and maintenance
 
-[Main CI](https://github.com/yusoofsh/mcp-email-server/actions/workflows/main.yml)
-is the sole workflow. It retains Python, Windows, browser, packaging and mail E2E
-checks, plus OAuth tests and native AMD64/ARM64 tests of the exact candidate images.
-Only the current `main` commit can promote both tested digests to `latest`; the
-publication step never rebuilds the images. Failed or stale runs leave `latest`
-unchanged. Pull requests never publish images.
+[Publish image](https://github.com/yusoofsh/mcp-email-server/actions/workflows/main.yml)
+is the sole workflow. It builds the custom OAuth image for Linux AMD64 and publishes
+it to GHCR as `latest` from `main` or a manually dispatched run.
 
 - [Deployment and migration](docs/remote-oauth.md)
 - [Security design](docs/remote-design.md)

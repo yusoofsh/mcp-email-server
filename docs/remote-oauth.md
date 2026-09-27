@@ -6,9 +6,8 @@ Image: `ghcr.io/yusoofsh/mcp-email-server:latest`
 
 The repository's root `Dockerfile` builds the single supported OAuth image.
 `deploy/compose.yaml` is the canonical deployment, and `latest` is the only
-published tag. Both `linux/amd64` and `linux/arm64` images are tested natively.
-Pin the recorded registry digest when an exact artifact is required; `latest`
-is intentionally mutable and is not a version or an immutability guarantee.
+published tag. The image workflow builds Linux AMD64 on `main` and keeps
+`latest` intentionally mutable.
 
 ## What you need
 
@@ -172,18 +171,11 @@ continue to reject a supplied foreign `Origin`.
 
 ## CI and image access
 
-[Main CI and GHCR](https://github.com/yusoofsh/mcp-email-server/actions/workflows/main.yml)
-runs the full email, OAuth, packaging, browser, Windows and documentation checks.
-Each native architecture candidate is built once and exercised by digest using
-canonical Compose, HTTP OAuth, the complete tool catalog, restart persistence,
-refresh and revocation. The random test port is rediscovered after a restart.
-
-A single serialized publication step checks that the source is still current
-`main`, then promotes only the two verified digests to `latest` without rebuilding.
-Failed or stale runs leave `latest` unchanged. Pull requests do not publish.
-Publishing uses the repository's `GITHUB_TOKEN` with `packages:write` only where
-needed; no custom PAT is required by Actions. Old deployment variants are not
-published. Existing mailbox volumes are never removed by this release workflow.
+[Publish image](https://github.com/yusoofsh/mcp-email-server/actions/workflows/main.yml)
+builds the custom OAuth image for Linux AMD64 and publishes it to GHCR as `latest`
+from `main` or a manually dispatched run. Publishing uses the repository's
+`GITHUB_TOKEN`; no custom PAT is required by Actions. Existing mailbox volumes are
+never removed by this workflow.
 
 A newly created GHCR package may initially be private even when its repository is
 public. Set the package visibility to public for anonymous pulls, or authenticate
