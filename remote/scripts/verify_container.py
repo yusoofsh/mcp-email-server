@@ -123,8 +123,7 @@ def verify(image: str, expected_version: str | None, source: str | None, report:
             """services:
   proxy:
     image: ${MCP_IMAGE}
-    env_file:
-      - ${MCP_ENV_FILE}
+    env_file: []
     environment:
       MCP_PUBLIC_URL: ${MCP_PUBLIC_URL}
       MCP_AUTH_USERNAME: ${MCP_AUTH_USERNAME}
@@ -140,7 +139,6 @@ volumes:
         env = {
             **os.environ,
             "MCP_IMAGE": image,
-            "MCP_ENV_FILE": str(empty_env),
             "MCP_PUBLIC_URL": PUBLIC,
             "MCP_AUTH_USERNAME": "test-operator",
             "MCP_AUTH_REDIRECT_URIS": "*",
