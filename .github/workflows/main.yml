@@ -44,3 +44,6 @@ jobs:
           platforms: linux/amd64
           push: true
           tags: ${{ env.IMAGE }}
+          labels: |
+            org.opencontainers.image.revision=${{ github.sha }}
+            org.opencontainers.image.source=https://github.com/${{ github.repository }}
