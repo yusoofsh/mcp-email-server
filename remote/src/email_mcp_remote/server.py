@@ -20,6 +20,7 @@ from .auth import PasswordOAuthProvider
 from .config import Settings
 from .security import Boundary
 from .store import Store, digest
+from .events import attach_email_events
 
 
 def create_server(settings: Settings, target=None):
@@ -35,6 +36,7 @@ def create_server(settings: Settings, target=None):
         env = {k: v for k, v in os.environ.items() if not k.startswith("MCP_AUTH_") and k != "MCP_PUBLIC_URL"}
         target = Client(StdioTransport(settings.engine_command, ["stdio"], env=env), mode="legacy")
     mcp = create_proxy(target, name="Private Email MCP", version="0.1.0", auth=auth, mask_error_details=True)
+    attach_email_events(mcp, auth, target)
 
     @mcp.custom_route("/healthz", methods=["GET"])
     async def health(request):
