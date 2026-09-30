@@ -57,3 +57,7 @@ container variant is published by this fork.
 
 Based on [Wh1isper/mcp-email-server](https://github.com/Wh1isper/mcp-email-server).
 Original authorship and the [BSD-3-Clause license](LICENSE) are preserved.
+
+## MCP Events
+
+See [event configuration and rollout](docs/mcp-events.md).
