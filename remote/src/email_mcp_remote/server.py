@@ -18,9 +18,9 @@ from starlette.responses import JSONResponse
 
 from .auth import PasswordOAuthProvider
 from .config import Settings
+from .events import attach_email_events
 from .security import Boundary
 from .store import Store, digest
-from .events import attach_email_events
 
 
 def create_server(settings: Settings, target=None):
