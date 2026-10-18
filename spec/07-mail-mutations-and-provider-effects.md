@@ -15,7 +15,7 @@ mutation route. The static MCP catalog does not change with effective grants.
 | Class      | Effects authorized                                                                             |
 | ---------- | ---------------------------------------------------------------------------------------------- |
 | `draft`    | `save_draft` only: append composed MIME to the resolved draft mailbox with fixed `\Draft` flag |
-| `organize` | mark-read/unread, approved flags and semantic tags, move and archive                           |
+| `organize` | mark-read/unread, approved flags and semantic tags, move, archive, and mailbox creation        |
 | `delete`   | explicit delete and its UID-scoped deletion/expunge effects                                    |
 | `send`     | send/forward SMTP submission and narrowly their successful-message Sent copy                   |
 | `append`   | general `save_to_mailbox`, including caller-selected mailbox and flags                         |
@@ -25,6 +25,35 @@ perform unrestricted expunge or expose generic delete capability. A compose
 request cannot turn `draft` into arbitrary APPEND by naming a mailbox or flags.
 Read-only (`[]`) blocks all these effects, including `mark_as_read=true` on body
 reads; ordinary reads remain available under the existing sender constraints.
+
+## Explicit Protocol Execution
+
+The separately enabled protocol channel (admission in spec 04, MCP interface in
+spec 10) supplements rather than changes the focused workflows below. It owns
+one authenticated IMAP or SMTP connection per call and executes commands in
+order. No sessions, mailbox selection, or SMTP transactions persist across
+calls. Authentication, TLS negotiation, and cleanup remain server-owned.
+
+The executor preserves native protocol semantics, including broader destructive
+effects explicitly authorized by the advanced-access flag. It does not create
+mailboxes implicitly, compose MIME, save Sent copies, invent per-UID outcomes,
+or implement MOVE fallbacks. It uses supported protocol-library commands with
+small state/response/literal adapters, not arbitrary Python dispatch or a new
+scripting runtime. HELP performs no provider work.
+
+Recheck admission and account connection identity before each command and before
+DATA/APPEND payload submission. Stop at the first rejection, policy change,
+timeout, cancellation, unexpected continuation, or receive/result limit. Retain
+earlier command evidence and mark subsequent commands not attempted. Never
+retry automatically or claim rollback. Discard interrupted/unsynchronized
+connections. Cleanup never issues CLOSE or EXPUNGE implicitly; an explicit
+caller CLOSE retains its destructive protocol semantics.
+
+Invalidate the selected account's metadata coverage before sending user commands
+and again after execution/interruption. Initial invalidation failure prevents
+execution; final invalidation failure adds a warning without changing acknowledged
+provider outcomes. This conservative approach avoids guessing affected mailbox
+sets and does not claim isolation from concurrent readers.
 
 ## Common Mutation Pipeline
 
@@ -183,6 +212,42 @@ training or reporting. No separate spam/ham tool or rule engine is introduced.
 Archive resolves an explicit destination policy and then follows the same move
 contract. Destination creation, if supported, is a separate effect with its own
 policy and evidence; it is not silently attempted after an unsafe fallback.
+
+## Mailbox Creation
+
+`create_mailbox` is the only workflow that creates a mailbox. It is an explicit,
+caller-requested effect under `organize`; move, archive, Junk discovery, draft
+resolution, and append never create a mailbox implicitly.
+
+The caller supplies the exact server mailbox name, including any hierarchy
+delimiter and namespace prefix as reported by `list_mailboxes`. The service does
+not split, join, or guess hierarchy; intermediate levels are created only as the
+server's own CREATE semantics allow. Names are bounded like other mailbox names
+and reject empty values and the LIST wildcards `*` and `%`. Names are sent in
+RFC 3501 modified UTF-7.
+
+The workflow validates the request, requires `organize`, opens the provider, and
+requires `organize` again. In the same session, `LIST <name> ""` discovers the
+requested namespace's hierarchy delimiter, including for a nonexistent mailbox.
+A name ending in that delimiter is rejected before CREATE, not silently trimmed;
+a NIL delimiter denotes a flat namespace and imposes no suffix restriction.
+Failure to discover a unique delimiter fails before CREATE. The workflow then
+checks existence with an exact `LIST "" <name>`; a returned entry with the same name (case-insensitive only for
+`INBOX`) yields `already_exists` without any write. Entries flagged `\Noselect`
+or `\NonExistent` are hierarchy placeholders, not mailboxes, and do not count. Otherwise the grant is
+revalidated immediately before a single `CREATE`. Evidence maps as follows:
+
+| Provider evidence                    | Result                                    |
+| ------------------------------------ | ----------------------------------------- |
+| `OK`                                 | `created`                                 |
+| `NO` with RFC 5530 `[ALREADYEXISTS]` | `already_exists`                          |
+| other `NO` or `BAD`                  | bounded provider failure, no raw response |
+| timeout or interrupted connection    | `unknown`, `reconciliation_needed=true`   |
+
+The tool is idempotent by contract: repeating it for an existing mailbox reports
+`already_exists`. An `unknown` CREATE is not replayed automatically; the caller
+reconciles with `list_mailboxes`. Creation does not SUBSCRIBE the mailbox. The
+mailbox list is not projected, so creation requires no metadata invalidation.
 
 ## Delete and Scoped Expunge
 
@@ -385,6 +450,13 @@ enter public errors.
 
 ## Acceptance Criteria
 
+- **07-P1:** Protocol calls use isolated authenticated sessions and native primitives;
+  SELECT/EXAMINE, FETCH literals, APPEND and SMTP DATA preserve protocol state
+  and evidence. First failure stops later commands without replay or implicit
+  expunge. Receive limits precede buffering; revocation before payload blocks it.
+  Account coverage invalidation precedes commands and follows effects; final
+  invalidation failure cannot replace remote evidence.
+
 - Each effect maps to the class above, including explicit/implicit mark-read,
   scoped organize fallback, delete, general append, recipientless draft, forward,
   and the successful-message-only Sent-copy exception. Missing grants fail
@@ -424,7 +496,7 @@ enter public errors.
 8. Public numeric IDs are documented and tested as current-mailbox compatibility
    IDs, not durable listing-epoch tokens.
 9. No management UI route can invoke mail mutations in this delivery.
-10. Byte-level tests prove every IMAP APPEND path serializes MIME messages with
+10. Byte-level tests prove every focused-tool IMAP APPEND path serializes MIME messages with
     CRLF line endings and emits no bare LF or CR line breaks. Composition tests
     also prove that bare simple Message-IDs gain RFC angle brackets, already
     bracketed IDs are not double-wrapped, mixed `References` lists normalize as
@@ -455,3 +527,13 @@ enter public errors.
     multiple UIDs, non-writable rejection, and preservation of system,
     read-only, and unknown keywords with the same effect evidence and metadata
     invalidation rules as other mailbox mutations.
+15. Mailbox creation tests prove exact-name CREATE with modified UTF-7 encoding,
+    `already_exists` from both the pre-effect LIST and `[ALREADYEXISTS]`
+    without a second write, bounded failure for other `NO`/`BAD`, `unknown`
+    with `reconciliation_needed` and no replay on timeout, wildcard/empty name
+    rejection before provider access, namespace-specific trailing-delimiter
+    rejection without CREATE or normalization, preservation of non-delimiter
+    suffixes and flat namespaces, `organize` denial before provider access,
+    revocation between existence check and CREATE, and that no other workflow
+    issues CREATE. The explicitly opted-in protocol executor is a separate native
+    primitive surface, not a focused workflow.

@@ -52,6 +52,7 @@ from mcp_email_server.application.mutations import (
     BatchMutationOutcome,
     DeliveryMutationOutcome,
     FlagOperation,
+    MailboxCreationStatus,
     MutableEmailFlag,
     MutationStatus,
     SentCopyMutationOutcome,
@@ -60,7 +61,7 @@ from mcp_email_server.application.mutations import (
     validate_mailbox_name,
 )
 from mcp_email_server.config import EmailServer, EmailSettings, get_settings, sender_allowed
-from mcp_email_server.emails import EmailHandler
+from mcp_email_server.emails import EmailHandler, charsets
 from mcp_email_server.emails.models import (
     AttachmentDownloadResponse,
     EmailBodyResponse,
@@ -70,6 +71,9 @@ from mcp_email_server.emails.models import (
     MailboxInfo,
 )
 from mcp_email_server.log import logger
+
+# GB2312 labels decode as GB18030, including in encoded-word headers (see charsets).
+charsets.install_gb2312_superset_aliases()
 
 # Maximum body length before truncation (characters)
 MAX_BODY_LENGTH = 20000
@@ -721,6 +725,16 @@ def _imap_effect_status(response: Any) -> MutationStatus:
     return "unknown"
 
 
+def _has_already_exists_code(response: Any) -> bool:
+    """Detect the RFC 5530 ALREADYEXISTS response code without exposing server text."""
+    lines = response[1] if isinstance(response, tuple | list) and len(response) > 1 else getattr(response, "lines", ())
+    for line in lines or ():
+        text = line.decode("utf-8", "replace") if isinstance(line, bytes | bytearray) else str(line)
+        if text.lstrip().upper().startswith("[ALREADYEXISTS]"):
+            return True
+    return False
+
+
 async def _best_effort_imap_logout(imap: Any) -> None:
     """Close an IMAP session without replacing mutation evidence with cleanup failure."""
     try:
@@ -1360,17 +1374,47 @@ class EmailClient:
             return
         yield part, False
 
+    def _find_attachment_part(self, message: Message, name: str) -> Message | None:
+        """Match listed attachment roots, preferring exact names over NFC aliases."""
+        normalized_name = self._normalize_attachment_name(name)
+        fallback = None
+        for part, is_attachment in self._iter_content_parts(message):
+            if not is_attachment:
+                continue
+            filename = part.get_filename()
+            if not isinstance(filename, str) or not filename:
+                continue
+            if filename == name:
+                return part
+            if fallback is None and self._normalize_attachment_name(filename) == normalized_name:
+                fallback = part
+        return fallback
+
+    @staticmethod
+    def _attachment_content(part: Message) -> bytes | None:
+        """Decode leaves or serialize a structured attachment as a usable MIME file.
+
+        Encapsulated messages export the inner message, without the attachment
+        wrapper. Multipart attachments need their own content headers and boundary
+        to remain parseable. Structured exports use CRLF and may normalize MIME
+        serialization; ordinary leaf payloads retain their exact decoded bytes.
+        """
+        if part.get_content_type() == "message/rfc822":
+            payload = part.get_payload()
+            if isinstance(payload, list) and len(payload) == 1 and isinstance(payload[0], Message):
+                return payload[0].as_bytes(policy=SMTP_POLICY.clone(refold_source="none"))
+            return None
+        if part.get_content_maintype() == "multipart" and part.is_multipart():
+            return _strip_to_content_headers(part).as_bytes(policy=SMTP_POLICY.clone(refold_source="none"))
+        return _decoded_payload(part)
+
     @staticmethod
     def _decode_text_part(part: Message) -> str:
         """Decode a MIME text part without losing the message on a bad charset."""
         payload = _decoded_payload(part)
         if not payload:
             return ""
-        charset = part.get_content_charset("utf-8")
-        try:
-            return payload.decode(charset)
-        except (LookupError, UnicodeDecodeError):
-            return payload.decode("utf-8", errors="replace")
+        return charsets.decode_text(payload, part.get_content_charset("utf-8"))
 
     def _parse_email_data(  # noqa: C901
         self,
@@ -2233,7 +2277,7 @@ class EmailClient:
             except Exception:
                 logger.info("IMAP logout failed")
 
-    async def fetch_attachment(  # noqa: C901 - bounded MIME selection and provider cleanup
+    async def fetch_attachment(
         self,
         email_id: str,
         attachment_name: str,
@@ -2282,25 +2326,10 @@ class EmailClient:
             parser = BytesParser(policy=default)
             email_message = parser.parsebytes(raw_email)
 
-            # Find the attachment
-            attachment_data: bytes | None = None
-            mime_type = None
-            normalized_attachment_name = self._normalize_attachment_name(attachment_name)
-
-            if email_message.is_multipart():
-                for part in email_message.walk():
-                    # Match attachments listed by ``_parse_email_data`` — this includes
-                    # inline-disposition parts with a filename (e.g. iOS Mail photos).
-                    if not self._is_attachment_part(part):
-                        continue
-                    filename = part.get_filename()
-                    if not isinstance(filename, str):
-                        continue
-                    if self._normalize_attachment_name(filename) == normalized_attachment_name:
-                        attachment_data = _decoded_payload(part)
-                        mime_type = part.get_content_type()
-                        break
-
+            # Use the same roots as the list, including single-part messages,
+            # without allowing a nested attachment to shadow a listed filename.
+            part = self._find_attachment_part(email_message, attachment_name)
+            attachment_data = self._attachment_content(part) if part is not None else None
             if attachment_data is None:
                 msg = f"Attachment '{attachment_name}' not found in email {email_id}"
                 logger.error(msg)
@@ -2309,7 +2338,7 @@ class EmailClient:
             return {
                 "email_id": email_id,
                 "attachment_name": attachment_name,
-                "mime_type": mime_type or "application/octet-stream",
+                "mime_type": part.get_content_type() if part is not None else "application/octet-stream",
                 "content": attachment_data,
             }
 
@@ -3806,6 +3835,53 @@ class EmailClient:
                 logger.info("IMAP logout failed")
 
         return mailboxes
+
+    async def create_mailbox(self, mailbox: str) -> MailboxCreationStatus:
+        """Create one mailbox by exact name; report existence instead of failing.
+
+        The LIST existence check and CREATE share one session so the reported
+        status reflects a single provider view. Once CREATE may have reached the
+        server, interruption is ``unknown`` and is never replayed here.
+        """
+        imap = await self._connect_imap()
+        try:
+            await _imap_login(imap, self.email_server.user_name, self.email_server.password.get_secret_value())
+            await _send_imap_id(imap)
+            quoted = _quote_mailbox(mailbox)
+            # An empty LIST pattern discovers the reference namespace's delimiter
+            # even when the requested mailbox does not exist (RFC 3501 6.3.8).
+            hierarchy = await imap.list(quoted, '""')  # pyright: ignore[reportArgumentType]
+            _raise_for_imap_error(hierarchy, "LIST mailbox hierarchy before CREATE")
+            roots = _parse_list_responses(hierarchy[1])
+            if len(roots) != 1:
+                raise RuntimeError("LIST mailbox hierarchy returned no unique delimiter")
+            delimiter = roots[0].delimiter
+            if delimiter and mailbox.endswith(delimiter):
+                raise ValueError("mailbox must not end with the server's hierarchy delimiter")
+            response = await imap.list('""', quoted)  # pyright: ignore[reportArgumentType]
+            _raise_for_imap_error(response, "LIST mailbox before CREATE")
+            for existing in _parse_list_responses(response[1]):
+                # \Noselect/\NonExistent entries are hierarchy placeholders, not
+                # mailboxes; CREATE is what turns them into real ones.
+                if any(flag.casefold() in (r"\noselect", r"\nonexistent") for flag in existing.flags):
+                    continue
+                if existing.name == mailbox or existing.name.casefold() == "inbox" == mailbox.casefold():
+                    return "already_exists"
+            self._check_mutation_authority()
+            try:
+                created = await imap.create(quoted)
+            except Exception:
+                return "unknown"
+            status = _imap_effect_status(created)
+            if status == "succeeded":
+                return "created"
+            if status == "failed":
+                if _has_already_exists_code(created):
+                    return "already_exists"
+                raise RuntimeError(f"CREATE mailbox failed ({_imap_status(created)})")
+            return "unknown"
+        finally:
+            await _best_effort_imap_logout(imap)
 
 
 class ClassicEmailHandler(EmailHandler):

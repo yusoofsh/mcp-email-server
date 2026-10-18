@@ -45,6 +45,11 @@ bounded, rebuildable observations.
 | [`12-delivery-validation-and-evolution.md`](12-delivery-validation-and-evolution.md)                   | verification map, test layers, package/release gates, documentation, and future change rules                                                |
 | [`13-single-operator-remote-oauth.md`](13-single-operator-remote-oauth.md)                             | hosted OAuth boundary, dynamic clients, callback binding, and operator consent                                                              |
 
+The general `email_command` protocol executor retains existing focused tools,
+including `create_mailbox`. Spec 04 owns explicit account opt-in and admission;
+spec 07 owns call-scoped provider effects; spec 10 owns the MCP interface and
+local HELP; spec 12 owns delivery verification.
+
 Cross-references point to the owning document rather than duplicating its full
 contract. This README is the only ordered navigation map.
 

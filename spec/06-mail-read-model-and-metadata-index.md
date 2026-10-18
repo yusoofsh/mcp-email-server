@@ -173,6 +173,12 @@ Body reads:
 - decode text parts independently and fall back to UTF-8 with replacement for an
   unknown or invalid declared charset, so one bad part cannot hide the rest of a
   readable message;
+- resolve GB2312 charset labels to GB18030 as the WHATWG Encoding Standard does,
+  in both MIME bodies and RFC 2047 encoded words (only A1A4 and A1AA change
+  meaning, to their WHATWG code points), and decode `gbk`/`big5` bodies with the
+  declared codec first and GB18030/Big5-HKSCS only after it fails, so text that
+  strict GBK or Big5 decoding accepts is never changed; `gbk`, the Windows code
+  page names, and `big5` keep their strict codec;
 - sanitize decode/parser errors and never persist bodies, thread headers from
   full-content reads, or raw MIME in SQLite.
 
@@ -234,6 +240,17 @@ local-only response. Logs and remote/provider errors do not include it. Partial
 files are removed when their identity can be proven; otherwise the operation
 returns a bounded cleanup warning without deleting an unverified path.
 
+Attachment lookup MUST use the same attachment-root traversal as body retrieval:
+include a named top-level single-part attachment and prune attachment subtrees.
+A nested file inside an attached message or multipart entity MUST NOT shadow an
+outer listed filename. Exact filenames take precedence over NFC-normalized
+fallback matches; identical duplicate names retain first-match ordering.
+Leaf attachments return decoded payload bytes. A `message/rfc822` attachment
+exports its encapsulated message without the wrapper; a named multipart
+attachment exports its content headers and complete MIME tree without outer
+mail envelope headers. Structured exports use CRLF and may normalize MIME
+serialization rather than promising byte-exact wire preservation.
+
 `get_attachment_content` shares the same MIME lookup, sender allowlist, and
 current account authority as attachment materialization, but performs no
 filesystem write. It has the independent `enable_attachment_content` policy,
@@ -286,7 +303,9 @@ catalog authority or secret binding state.
 7. Projection failure cannot turn known provider read evidence into a false mail
    failure, and rebuild cannot alter catalog or credential state.
 8. Interoperability tests cover quoted and grouped address fields, attachment
-   subtree pruning, unknown MIME charsets, all English IMAP month tokens, exact
+   subtree pruning, unknown MIME charsets, GB18030 decoding of GB2312 labels in
+   bodies and encoded words, strict-first GBK/Big5 body fallback without
+   regressing strictly decodable text, all English IMAP month tokens, exact
    ASCII astring escaping, multi-literal UTF-8 SEARCH continuations and failure
    framing, LIST completion filtering and literal lengths, and case-insensitive
    special-use attributes.

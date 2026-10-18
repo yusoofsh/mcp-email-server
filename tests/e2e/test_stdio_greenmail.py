@@ -1219,6 +1219,50 @@ async def test_account_mutation_grants_against_greenmail(tmp_path: Path, grants:
                 assert _find_message(ALICE, "Junk", subject) is None
                 assert _wait_for_message(ALICE, "INBOX", subject).uid == source.uid
 
+            initial = await _call_tool(session, "list_mailboxes", {"account_name": "alice"})
+            delimiter = next(mailbox["delimiter"] for mailbox in initial["result"] if mailbox["name"] == "INBOX")
+            assert delimiter
+            parent = f"Projects-{uuid.uuid4().hex[:8]}"
+            folder = f"{parent}{delimiter}create"
+            unicode_folder = f"Účty-{uuid.uuid4().hex[:8]}"
+            created = await session.call_tool("create_mailbox", {"account_name": "alice", "mailbox": parent})
+            if grants is None or "organize" in grants:
+                assert created.isError is not True, _text_content(created)
+                assert created.structuredContent["status"] == "created"
+                created = await session.call_tool("create_mailbox", {"account_name": "alice", "mailbox": folder})
+                assert created.isError is not True, _text_content(created)
+                assert created.structuredContent == {
+                    "mailbox": folder,
+                    "status": "created",
+                    "reconciliation_needed": False,
+                }
+                again = await _call_tool(session, "create_mailbox", {"account_name": "alice", "mailbox": folder})
+                assert again["status"] == "already_exists"
+                unicode_created = await _call_tool(
+                    session, "create_mailbox", {"account_name": "alice", "mailbox": unicode_folder}
+                )
+                assert unicode_created["status"] == "created"
+                listed = await _call_tool(session, "list_mailboxes", {"account_name": "alice"})
+                names = {mailbox["name"] for mailbox in listed["result"]}
+                assert {parent, folder, unicode_folder} <= names
+                trailing_parent = f"{parent}-trailing"
+                rejected = await session.call_tool(
+                    "create_mailbox", {"account_name": "alice", "mailbox": f"{trailing_parent}{delimiter}"}
+                )
+                assert rejected.isError is True
+                assert "must not end with the server's hierarchy delimiter" in _text_content(rejected)
+                repeated = await session.call_tool(
+                    "create_mailbox", {"account_name": "alice", "mailbox": f"{trailing_parent}{delimiter}"}
+                )
+                assert repeated.isError is True
+                assert _text_content(repeated) == _text_content(rejected)
+                listed = await _call_tool(session, "list_mailboxes", {"account_name": "alice"})
+                assert trailing_parent not in {mailbox["name"] for mailbox in listed["result"]}
+            else:
+                assert created.isError is True
+                listed = await _call_tool(session, "list_mailboxes", {"account_name": "alice"})
+                assert parent not in {mailbox["name"] for mailbox in listed["result"]}
+
 
 @pytest.mark.asyncio
 async def test_current_stdio_server_against_greenmail(tmp_path: Path) -> None:
@@ -1539,6 +1583,125 @@ async def test_current_stdio_server_against_greenmail(tmp_path: Path) -> None:
             assert Path(download["saved_path"]) == attachment_download
             assert attachment_download.read_bytes() == attachment_bytes
 
+            # A report can be the entire MIME message, with no multipart wrapper.
+            report_subject = f"mcp-e2e-single-part-{run_id}"
+            report_bytes = b"PK\x03\x04single-part report\x00\xff"
+            report = EmailMessage()
+            report["From"] = ALICE[0]
+            report["To"] = BOB[0]
+            report["Subject"] = report_subject
+            report.set_content(
+                report_bytes, maintype="application", subtype="zip", disposition="attachment", filename="report.zip"
+            )
+            assert not report.is_multipart()
+            with smtplib.SMTP(SMTP_HOST, SMTP_PORT, timeout=5) as smtp:
+                smtp.login(*ALICE)
+                smtp.send_message(report)
+            received_report = _wait_for_message(BOB, "INBOX", report_subject)
+            assert not received_report.message.is_multipart()
+            report_metadata = await _metadata_for_subject(session, "bob", report_subject)
+            report_content = await _call_tool(
+                session,
+                "get_emails_content",
+                {"account_name": "bob", "email_ids": [report_metadata["email_id"]], "mark_as_read": False},
+            )
+            assert report_content["emails"][0]["attachments"] == ["report.zip"]
+            report_arguments = {
+                "account_name": "bob",
+                "email_id": report_metadata["email_id"],
+                "attachment_name": "report.zip",
+            }
+            report_attachment = await session.call_tool("get_attachment_content", arguments=report_arguments)
+            assert report_attachment.isError is not True, _text_content(report_attachment)
+            report_resource = report_attachment.content[0]
+            assert isinstance(report_resource, EmbeddedResource)
+            assert isinstance(report_resource.resource, BlobResourceContents)
+            assert report_resource.resource.mimeType == "application/zip"
+            assert base64.b64decode(report_resource.resource.blob) == report_bytes
+            report_destination = tmp_path / "report.zip"
+            report_download = await _call_tool(
+                session,
+                "download_attachment",
+                {**report_arguments, "save_path": str(report_destination)},
+            )
+            assert report_download["size"] == len(report_bytes)
+            assert report_destination.read_bytes() == report_bytes
+            assert "\\Seen" not in _wait_for_message(BOB, "INBOX", report_subject).flags
+
+            # Structured attachments remain downloadable as complete MIME trees.
+            package_subject = f"mcp-e2e-attachment-tree-{run_id}"
+            inner = EmailMessage()
+            inner["Subject"] = "Inner report"
+            inner.set_content("Inner body")
+            inner.add_attachment(b"INNER", maintype="application", subtype="zip", filename="report.zip")
+            gallery = EmailMessage()
+            gallery.set_content("<p>Gallery</p>", subtype="html")
+            gallery.add_related(b"IMAGE", maintype="image", subtype="png", filename="photo.png")
+            gallery.add_header("Content-Disposition", "attachment", filename="gallery.mhtml")
+            package = EmailMessage()
+            package["From"] = ALICE[0]
+            package["To"] = BOB[0]
+            package["Subject"] = package_subject
+            package.set_content("Outer body")
+            package.add_attachment(inner, filename="report.eml")
+            package.attach(gallery)
+            package.add_attachment(b"OUTER", maintype="application", subtype="zip", filename="report.zip")
+            with smtplib.SMTP(SMTP_HOST, SMTP_PORT, timeout=5) as smtp:
+                smtp.login(*ALICE)
+                smtp.send_message(package)
+            _wait_for_message(BOB, "INBOX", package_subject)
+            package_metadata = await _metadata_for_subject(session, "bob", package_subject)
+            package_content = await _call_tool(
+                session,
+                "get_emails_content",
+                {"account_name": "bob", "email_ids": [package_metadata["email_id"]], "mark_as_read": False},
+            )
+            assert package_content["emails"][0]["attachments"] == ["report.eml", "gallery.mhtml", "report.zip"]
+            for filename, mime_type in (
+                ("report.eml", "message/rfc822"),
+                ("gallery.mhtml", "multipart/related"),
+                ("report.zip", "application/zip"),
+            ):
+                arguments = {
+                    "account_name": "bob",
+                    "email_id": package_metadata["email_id"],
+                    "attachment_name": filename,
+                }
+                content_result = await session.call_tool("get_attachment_content", arguments=arguments)
+                assert content_result.isError is not True, _text_content(content_result)
+                resource = content_result.content[0]
+                assert isinstance(resource, EmbeddedResource)
+                assert isinstance(resource.resource, BlobResourceContents)
+                assert resource.resource.mimeType == mime_type
+                content_bytes = base64.b64decode(resource.resource.blob)
+                destination = tmp_path / f"package-{filename}"
+                downloaded = await _call_tool(
+                    session, "download_attachment", {**arguments, "save_path": str(destination)}
+                )
+                assert destination.read_bytes() == content_bytes
+                assert downloaded["size"] == len(content_bytes) > 0
+                if filename == "report.zip":
+                    assert content_bytes == b"OUTER"
+                else:
+                    restored = BytesParser(policy=policy.default).parsebytes(content_bytes)
+                    if filename == "report.eml":
+                        assert restored["Subject"] == "Inner report"
+                        assert (
+                            next(part for part in restored.walk() if part.get_filename() == "report.zip").get_payload(
+                                decode=True
+                            )
+                            == b"INNER"
+                        )
+                    else:
+                        assert restored.get_content_type() == "multipart/related"
+                        assert (
+                            next(part for part in restored.walk() if part.get_filename() == "photo.png").get_payload(
+                                decode=True
+                            )
+                            == b"IMAGE"
+                        )
+            assert "\\Seen" not in _wait_for_message(BOB, "INBOX", package_subject).flags
+
             move_result = await _call_tool(
                 session,
                 "move_emails",
@@ -1687,3 +1850,93 @@ async def test_current_stdio_server_against_greenmail(tmp_path: Path) -> None:
             mailboxes = await _call_tool(session, "list_mailboxes", {"account_name": "alice"})
             mailbox_names = {mailbox["name"] for mailbox in mailboxes["result"]}
             assert {"INBOX", "Sent", "Drafts", "Archive"} <= mailbox_names
+
+
+@pytest.mark.asyncio
+async def test_protocol_primitives_over_stdio_against_greenmail(tmp_path: Path) -> None:
+    """A real COPY has no copy business service; existing focused tools coexist."""
+    _wait_until_ready()
+    subject = f"protocol-{uuid.uuid4().hex}"
+    destination = f"Protocol-{uuid.uuid4().hex[:8]}"
+    renamed = destination + "-Renamed"
+    _seed_message_as(BOB, ALICE[0], subject, "Synthetic protocol source")
+    source = _wait_for_message(ALICE, "INBOX", subject)
+    config = CONFIG_TEMPLATE.replace(
+        'account_name = "alice"\n', 'account_name = "alice"\nallow_protocol_commands = true\n'
+    ).replace('allowed_recipients = ["bob@example.test"]', 'allowed_recipients = ["*"]')
+    config_path = tmp_path / "config.toml"
+    config_path.write_text(config)
+    config_path.chmod(0o600)
+    env = {key: value for key, value in os.environ.items() if not key.startswith("MCP_EMAIL_SERVER_")}
+    env.update({"MCP_EMAIL_SERVER_CONFIG_PATH": str(config_path), "MCP_EMAIL_SERVER_LOG_LEVEL": "DEBUG"})
+    server = StdioServerParameters(
+        command=str(Path(sys.executable).with_name("mcp-email-server")), args=["stdio"], env=env, cwd=Path.cwd()
+    )
+    async with stdio_client(server) as (read_stream, write_stream):
+        async with ClientSession(read_stream, write_stream, read_timeout_seconds=timedelta(seconds=15)) as session:
+            await session.initialize()
+            tools = {tool.name: tool for tool in (await session.list_tools()).tools}
+            assert len(tools) == 21
+            assert "create_mailbox" in tools and "email_command" in tools
+            help_result = await _call_tool(session, "email_command", {"commands": [{"command": "HELP UID COPY"}]})
+            assert help_result["results"][0]["code"] == "HELP"
+            await _call_tool(session, "create_mailbox", {"account_name": "alice", "mailbox": destination})
+            await _metadata_for_subject(session, "alice", subject)
+            copied = await _call_tool(
+                session,
+                "email_command",
+                {
+                    "account_name": "alice",
+                    "commands": [
+                        {"command": 'SELECT "INBOX"'},
+                        {"command": f'UID COPY {source.uid} "{destination}"'},
+                        {"command": f'RENAME "{destination}" "{renamed}"'},
+                        {"command": f'SUBSCRIBE "{renamed}"'},
+                    ],
+                },
+            )
+            assert copied["status"] == "completed"
+            assert [step["code"] for step in copied["results"]] == ["OK"] * 4
+            assert _wait_for_message(ALICE, "INBOX", subject).uid == source.uid
+            _wait_for_message(ALICE, renamed, subject)
+            independent = await session.call_tool(
+                "email_command", {"account_name": "alice", "commands": [{"command": f"UID COPY {source.uid} INBOX"}]}
+            )
+            assert independent.isError and independent.structuredContent["results"][0]["status"] == "error"
+            refused = await session.call_tool(
+                "email_command", {"account_name": "bob", "commands": [{"command": "NOOP"}]}
+            )
+            assert refused.isError and "protocol_disabled" in _text_content(refused)
+            data = f"From: {ALICE[0]}\r\nTo: {BOB[0]}\r\nSubject: append-{subject}\r\n\r\nProtocol body.\r\n"
+            await _call_tool(
+                session,
+                "email_command",
+                {"account_name": "alice", "commands": [{"command": f'APPEND "{renamed}"', "data": data}]},
+            )
+            appended = _wait_for_message(ALICE, renamed, f"append-{subject}")
+            fetched = await _call_tool(
+                session,
+                "email_command",
+                {
+                    "account_name": "alice",
+                    "commands": [
+                        {"command": f'EXAMINE "{renamed}"'},
+                        {"command": f"UID FETCH {appended.uid} (BODY.PEEK[])"},
+                    ],
+                },
+            )
+            assert any(block["kind"] == "literal" for block in fetched["results"][1]["responses"])
+            await _call_tool(
+                session,
+                "email_command",
+                {
+                    "account_name": "alice",
+                    "protocol": "smtp",
+                    "commands": [
+                        {"command": f"MAIL FROM:<{ALICE[0]}>"},
+                        {"command": f"RCPT TO:<{BOB[0]}>"},
+                        {"command": "DATA", "data": data.replace("append-", "smtp-", 1)},
+                    ],
+                },
+            )
+            _wait_for_message(BOB, "INBOX", f"smtp-{subject}")
