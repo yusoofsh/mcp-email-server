@@ -184,10 +184,10 @@ sidecar itself is unparseable, repair or restore that sidecar manually; `reset`
 cannot safely infer its mode and therefore does not unlink the independent legacy
 source.
 
-Schemas v3, v4, and v5 are supported managed-catalog migration sources for v6.
+Schemas v3, v4, v5, and v6 are supported managed-catalog migration sources for v7.
 The first new-version catalog access migrates transactionally, preserving account,
-policy, binding, secret rows, and revisions. All sources receive disabled protocol
-access. Sources before v5 receive full global mutation grants and inheriting
+policy, binding, secret rows, and revisions. All sources receive the nullable
+To-only cache field. Sources before v6 receive disabled protocol access. Sources before v5 receive full global mutation grants and inheriting
 account overrides; v3 also receives empty tag mappings and a disabled
 attachment-content policy. A failed migration leaves the source version intact.
 
@@ -196,7 +196,7 @@ or MCP process migrates it. Upgrade all catalog users together and restart every
 MCP client. If rolling back the package, restore the consistent pre-migration
 catalog backup too; do not edit the schema version manually, delete the catalog,
 or re-enter all accounts as a routine upgrade fix. Follow the
-[managed upgrade and rollback steps](configuration.md#upgrading-a-managed-catalog-to-v6).
+[managed upgrade and rollback steps](configuration.md#upgrading-a-managed-catalog-to-v7).
 
 Other older development schemas are still rejected. For those versions, select
 legacy mode, preserve the old file for rollback, and initialize a fresh
@@ -291,12 +291,72 @@ sender/INTERNALDATE evidence for every requested UID. The request is rejected
 rather than expanding a UID range or returning an incorrect page; retry after
 the mailbox is stable or report the provider issue.
 
+Some IMAP servers, including NetEase (`imap.163.com`, `imap.126.com`, and
+`imap.yeah.net`), accept `UID SEARCH` and then return no matches, including for
+ASCII text that is present in the mailbox. Their `STATUS` and `SELECT`
+responses can also omit `UIDNEXT` while still returning `MESSAGES` and
+`UIDVALIDITY`. The default `server` header-search mode still sends subject,
+from, and to to IMAP SEARCH, so those filters stay empty on that kind of
+server. Set `MCP_EMAIL_SERVER_IMAP_SEARCH_MODE` or the legacy account field
+`imap_search_mode` to `local` to filter subject, from, and to from mailbox
+headers instead. `local` uses a complete cached projection only when the server
+supplied both `UIDVALIDITY` and `UIDNEXT`. Otherwise it reads `UID FETCH 1:*
+(UID)` and the headers. Gaps in that UID list are kept as coverage evidence,
+and the omitted `UIDNEXT` stays unknown. If the server also omits
+`UIDVALIDITY`, each request reads the mailbox again, so a reset that issues
+the same UID numbers returns the headers from that read. If `STATUS` and
+`SELECT` return conflicting `UIDVALIDITY` values, the request fails rather
+than reuse cached headers across the reset; retry once the mailbox is stable.
+A mailbox that does not fit the snapshot bounds, or a
+read that cannot prove every message was seen, fails with `query_too_broad`
+instead of an empty page. Body, text, date, flag, tag, and attachment filters
+stay on IMAP SEARCH. A `local` query that mixes those filters with subject,
+from, or to is rejected; run the header filter and the other filter as
+separate requests. To matches the To header only, not Cc. The cache stores To
+addresses separately from display recipients. Older cache rows without that
+field are refreshed automatically on a To search; no manual cache deletion is
+needed. Repeated searches and incremental updates preserve the distinction.
+
+A metadata refresh logs its progress at INFO: a partial snapshot reports how
+many rows it kept out of the server message count, a complete snapshot reports
+that count, and an append-only sync reports how many UIDs it added.
+
 Non-ASCII subject, body, text, sender, or recipient filters are sent as
-synchronizing UTF-8 IMAP literals with `CHARSET UTF-8`. If a provider rejects the
-charset, the search fails without rewriting or dropping the filter. Use the
+synchronizing UTF-8 IMAP literals with `CHARSET UTF-8`, except for `imap.qq.com`.
+QQ Mail mis-parses `UID SEARCH CHARSET UTF-8 SUBJECT {n}` and can return the
+wrong messages, so the default `auto` mode sends `CHARSET UTF-8 SUBJECT "…"`.
+Force `literal` or `quoted` for every account with
+`MCP_EMAIL_SERVER_IMAP_NON_ASCII_SEARCH`, or set `imap_non_ascii_search` on one
+legacy account. Quoted keywords cannot contain CR or LF. If a provider rejects
+the charset, the search fails without rewriting or dropping the filter. Use the
 provider's supported search syntax or an ASCII/narrower criterion; do not assume
 that changing the process locale will help, because IMAP date months are always
 protocol-defined English tokens.
+
+A mailbox larger than the metadata snapshot ceiling stays a partial projection,
+so every unfiltered list fetches from IMAP again. The default ceiling is 1,000
+rows. `MCP_EMAIL_SERVER_METADATA_SNAPSHOT_ROWS` accepts 1 through 100,000. A
+refresh of a mailbox that fits the ceiling fetches newest UIDs first, in batches
+of `MCP_EMAIL_SERVER_METADATA_REFRESH_BATCH_SIZE` (default 100, capped so one
+batch of maximum-size headers fits the budget). Each batch has its own
+`MCP_EMAIL_SERVER_METADATA_REFRESH_TIMEOUT_SECONDS` deadline (default 60) and
+its own `MCP_EMAIL_SERVER_METADATA_HEADER_BUDGET_BYTES` budget (default 4 MiB,
+65536 through 67108864). Those limits do not accumulate across the whole
+mailbox, and they do not change the deadline for other IMAP or SMTP commands.
+If a batch fails, the newest rows already fetched are stored as a partial
+snapshot. That partial result is not a complete cache: the list still falls
+back to a bounded live search, and a later refresh continues at the UIDs that
+are still missing. After a complete snapshot exists, later mail is fetched by
+UID above the highest cached UID when the count proves append-only growth and
+UIDVALIDITY, UIDNEXT, and message count stay stable during the fetch. Concurrent
+changes rebuild the bounded snapshot; retained rows are reused only after their
+UIDVALIDITY matches the refresh's initial state. Connection establishment uses
+the refresh timeout too. IMAP command timeouts use the same refresh budget;
+ordinary metadata requests use the standard provider deadline instead. If a
+metadata command times out or is cancelled, the connection is discarded so a
+stalled logout does not delay the result. A refresh that fails before any row is stored logs
+`Metadata projection refresh failed` with the exception class and value-free
+traceback locations, without exception text, source lines, or frame locals.
 
 ## The UI cannot load or authenticate
 
