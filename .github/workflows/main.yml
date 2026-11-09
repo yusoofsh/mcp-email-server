@@ -6,6 +6,11 @@ on:
   pull_request:
     types: [opened, synchronize, reopened, ready_for_review]
   workflow_dispatch:
+    inputs:
+      version:
+        description: Optional release version such as 1.9.1-ys.1. Also tags the promoted image once.
+        required: false
+        type: string
 
 permissions:
   contents: read
@@ -309,4 +314,5 @@ jobs:
         env:
           GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
           SOURCE_SHA: ${{ github.sha }}
-        run: python3 remote/scripts/promote_image.py --evidence evidence --source-sha "$SOURCE_SHA"
+          RELEASE_VERSION: ${{ inputs.version }}
+        run: python3 remote/scripts/promote_image.py --evidence evidence --source-sha "$SOURCE_SHA" ${RELEASE_VERSION:+--version "$RELEASE_VERSION"}

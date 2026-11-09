@@ -482,4 +482,7 @@ def test_one_pipeline_gates_latest_on_exact_native_image_checks() -> None:
     assert "refs/heads/main" in str(publish["if"])
     assert "pull_request" in str(publish["if"])
     assert any("remote/scripts/promote_image.py" in command for command in _workflow_job_runs(main, "publish"))
+    assert any("--version" in command for command in _workflow_job_runs(main, "publish"))
+    dispatch = yaml.safe_load(main.read_text(encoding="utf-8"))[True]["workflow_dispatch"]
+    assert dispatch["inputs"]["version"]["required"] is False
     assert not any("build-push-action" in str(step.get("uses")) for step in _workflow_steps(main, "publish"))

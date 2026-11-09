@@ -5,9 +5,11 @@ Repository: https://github.com/yusoofsh/mcp-email-server
 Image: `ghcr.io/yusoofsh/mcp-email-server:latest`
 
 The repository's root `Dockerfile` builds the single supported OAuth image.
-`deploy/compose.yaml` is the canonical deployment, and `latest` is the only
-published tag. The image workflow builds Linux AMD64 on `main` and keeps
-`latest` intentionally mutable.
+`deploy/compose.yaml` is the canonical deployment. `latest` is the only floating
+tag and is intentionally mutable. Releases also get an immutable version tag such as
+`1.9.1-ys.1`, created from the tested digest by a manually dispatched run. Pin
+production deployments to a version tag, for example
+`ghcr.io/yusoofsh/mcp-email-server:1.9.1-ys.1`.
 
 ## What you need
 
@@ -173,7 +175,8 @@ continue to reject a supplied foreign `Origin`.
 
 [Publish image](https://github.com/yusoofsh/mcp-email-server/actions/workflows/main.yml)
 builds the custom OAuth image for Linux AMD64 and publishes it to GHCR as `latest`
-from `main` or a manually dispatched run. Publishing uses the repository's
+from `main` or a manually dispatched run. A dispatched run with a `version` input also
+publishes that immutable version tag. Publishing uses the repository's
 `GITHUB_TOKEN`; no custom PAT is required by Actions. Existing mailbox volumes are
 never removed by this workflow.
 
