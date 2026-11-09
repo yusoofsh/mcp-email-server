@@ -75,7 +75,9 @@ def tag_version(version: str, digest: str) -> None:
     if existing is not None and existing != digest:
         raise RuntimeError("Version tag " + version + " already points at a different image")
     if existing is None:
-        execute(["docker", "buildx", "imagetools", "create", "--tag", IMAGE + ":" + version, IMAGE + "@" + digest])
+        execute(
+            ["docker", "buildx", "imagetools", "create", "--tag", IMAGE + ":" + version, IMAGE + "@" + digest]
+        )
     if digest_of(version) != digest:
         raise RuntimeError("Version tag " + version + " does not match the promoted digest")
 

@@ -115,11 +115,17 @@ def promote_with_version(tmp_path, monkeypatch, existing, version="1.9.1-ys.1"):
             return ""
         if "--raw" in args:
             return json.dumps(
-                {"manifests": [{"platform": {"os": "linux", "architecture": arch}} for arch in ("amd64", "arm64")]}
+                {
+                    "manifests": [
+                        {"platform": {"os": "linux", "architecture": arch}} for arch in ("amd64", "arm64")
+                    ]
+                }
             )
         tag = args[-1].rsplit(":", 1)[1]
         if tag not in tags:
-            raise release.subprocess.CalledProcessError(1, args, stderr="ERROR: ghcr.io/x:" + tag + ": not found")
+            raise release.subprocess.CalledProcessError(
+                1, args, stderr="ERROR: ghcr.io/x:" + tag + ": not found"
+            )
         return "Digest: " + tags[tag] + "\n"
 
     monkeypatch.setattr(release, "execute", execute)
