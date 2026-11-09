@@ -166,6 +166,12 @@ source is still current `main` and publishes those exact tested images as
 `ghcr.io/yusoofsh/mcp-email-server:latest`, without rebuilding. This floating tag
 is intentionally mutable; the run summary records the exact registry digest.
 Pull requests, failed runs and stale source commits cannot promote `latest`.
+To cut a release, dispatch `Main` on `main` with the `version` input, for example
+`1.9.1-ys.1` (the upstream version, then `-ys.N`). The same promotion step also tags
+the promoted digest with that version. A version tag is created once and never moved:
+the step fails if the tag already points at a different image, and a rerun with the
+same digest changes nothing. Create the matching `vX.Y.Z-ys.N` git tag on the
+dispatched commit. Deployments should reference the version tag, not `latest`.
 The independent `remote/` Python environment is tested in the same workflow.
 
 9. Commit your changes and push your branch to GitHub:

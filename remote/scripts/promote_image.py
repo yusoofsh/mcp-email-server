@@ -1,7 +1,9 @@
-"""Promote verified, digest-addressed candidates to the only public tag: latest.
+"""Promote verified, digest-addressed candidates to latest and, on request, to a release version.
 
 Must run inside the shared GitHub Actions publication concurrency group.
 There is deliberately no image build here and no commit-derived mutable tag.
+`latest` is the only floating tag. A release version tag is immutable: it is
+created once from the promoted digest and never moved.
 """
 
 from __future__ import annotations
@@ -16,6 +18,8 @@ from pathlib import Path
 
 REPOSITORY = "yusoofsh/mcp-email-server"
 IMAGE = "ghcr.io/" + REPOSITORY
+VERSION = re.compile(r"\d+\.\d+\.\d+(?:-[0-9A-Za-z][0-9A-Za-z.-]*)?")
+DIGEST_LINE = re.compile(r"^Digest:\s*(sha256:[0-9a-f]{64})\s*$", re.MULTILINE)
 
 
 def candidates(directory: Path, source: str) -> list[str]:
@@ -53,7 +57,32 @@ def execute(command: list[str]) -> str:
     return subprocess.run(command, check=True, capture_output=True, text=True, timeout=120).stdout
 
 
-def promote(directory: Path, source: str, token: str) -> str | None:
+def digest_of(tag: str) -> str | None:
+    try:
+        description = execute(["docker", "buildx", "imagetools", "inspect", IMAGE + ":" + tag])
+    except subprocess.CalledProcessError as error:
+        if "not found" in (error.stderr or "").lower():
+            return None
+        raise
+    match = DIGEST_LINE.search(description)
+    if not match:
+        raise RuntimeError("Published manifest digest missing")
+    return match.group(1)
+
+
+def tag_version(version: str, digest: str) -> None:
+    existing = digest_of(version)
+    if existing is not None and existing != digest:
+        raise RuntimeError("Version tag " + version + " already points at a different image")
+    if existing is None:
+        execute(["docker", "buildx", "imagetools", "create", "--tag", IMAGE + ":" + version, IMAGE + "@" + digest])
+    if digest_of(version) != digest:
+        raise RuntimeError("Version tag " + version + " does not match the promoted digest")
+
+
+def promote(directory: Path, source: str, token: str, version: str | None = None) -> str | None:
+    if version is not None and not VERSION.fullmatch(version):
+        raise ValueError("Invalid release version")
     refs = candidates(directory, source)
     # This check occurs while holding the single publisher lock, immediately before promotion.
     if main_head(token) != source:
@@ -69,9 +98,11 @@ def promote(directory: Path, source: str, token: str) -> str | None:
     if platforms != {("linux", "amd64"), ("linux", "arm64")}:
         raise RuntimeError("Published manifest has unexpected platforms")
     description = execute(["docker", "buildx", "imagetools", "inspect", IMAGE + ":latest"])
-    match = re.search(r"^Digest:\s*(sha256:[0-9a-f]{64})\s*$", description, re.MULTILINE)
+    match = DIGEST_LINE.search(description)
     if not match:
         raise RuntimeError("Published manifest digest missing")
+    if version is not None:
+        tag_version(version, match.group(1))
     return match.group(1)
 
 
@@ -79,12 +110,14 @@ def main():
     parser = argparse.ArgumentParser(description=__doc__)
     parser.add_argument("--evidence", type=Path, required=True)
     parser.add_argument("--source-sha", required=True)
+    parser.add_argument("--version", help="Also tag the promoted image, for example 1.9.1-ys.1")
     args = parser.parse_args()
     if os.environ.get("GITHUB_REPOSITORY") != REPOSITORY or os.environ.get("GITHUB_REF") != "refs/heads/main":
         raise SystemExit("Publication is allowed only from the canonical main branch")
-    result = promote(args.evidence, args.source_sha, os.environ["GH_TOKEN"])
+    result = promote(args.evidence, args.source_sha, os.environ["GH_TOKEN"], args.version)
+    tags = "`:latest`" + (f" and `:{args.version}`" if args.version else "")
     summary = (
-        f"Published `{IMAGE}:latest`\n\nExact artifact: `{IMAGE}@{result}`\n"
+        f"Published `{IMAGE}` as {tags}\n\nExact artifact: `{IMAGE}@{result}`\n"
         if result
         else "Stale run skipped; latest unchanged.\n"
     )
