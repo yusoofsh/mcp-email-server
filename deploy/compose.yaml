@@ -1,7 +1,7 @@
 name: email
 services:
   proxy:
-    image: ghcr.io/yusoofsh/mcp-email-server:latest
+    image: ghcr.io/yusoofsh/mcp-email-server:1.9.1-ys.1
     pull_policy: missing
     restart: unless-stopped
     env_file:
