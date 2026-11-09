@@ -2,7 +2,7 @@
 
 Repository: https://github.com/yusoofsh/mcp-email-server
 
-Image: `ghcr.io/yusoofsh/mcp-email-server:latest`
+Image: `ghcr.io/yusoofsh/mcp-email-server:1.9.1-ys.1` (use the newest version tag)
 
 The repository's root `Dockerfile` builds the single supported OAuth image.
 `deploy/compose.yaml` is the canonical deployment. `latest` is the only floating

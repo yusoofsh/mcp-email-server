@@ -8,9 +8,9 @@ No external identity provider is required.
 ChatGPT / MCP client -> HTTPS proxy -> OAuth MCP -> private stdio -> IMAP / SMTP
 ```
 
-**Image:** `ghcr.io/yusoofsh/mcp-email-server:latest`, for Linux AMD64.
+**Image:** `ghcr.io/yusoofsh/mcp-email-server:1.9.1-ys.1`, for Linux AMD64. Use the newest version tag from the releases.
 The root `Dockerfile` and `deploy/compose.yaml` are the only deployment definitions.
-`latest` is intentionally mutable and is rebuilt from the `main` branch.
+`latest` is intentionally mutable and is rebuilt from the `main` branch. Deploy a version tag instead.
 
 ## Deploy
 
