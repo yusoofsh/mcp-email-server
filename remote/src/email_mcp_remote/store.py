@@ -162,6 +162,7 @@ class Store:
                     return False
                 old["used"] = True
                 self._put("refresh", digest(token), old, old["expires_at"])
+                self.db.execute("UPDATE families SET expires=? WHERE id=?", (refresh["expires_at"], family))
             else:
                 self.db.execute("DELETE FROM records WHERE kind='code' AND key=?", (digest(token),))
                 self.db.execute("INSERT INTO families VALUES (?,?,0)", (family, refresh["expires_at"]))

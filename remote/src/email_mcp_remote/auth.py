@@ -371,7 +371,11 @@ including sending mail and returning attachments, subject to your email policies
             or data["resource"] != self.config.resource
         ):
             raise TokenError("invalid_grant", "Invalid refresh token")
-        result, access, refresh = self._issue(client.client_id, scopes, data["family"], data["expires_at"])
+        # Sliding expiry: each rotation gives the family refresh_ttl from now, so an active
+        # client is not logged out at a fixed date; an idle one still expires after refresh_ttl.
+        result, access, refresh = self._issue(
+            client.client_id, scopes, data["family"], int(time.time()) + self.config.refresh_ttl
+        )
         if not self.store.exchange(
             "refresh",
             refresh_token.token,

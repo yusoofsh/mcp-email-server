@@ -414,6 +414,24 @@ def test_refresh_rotation_replay_revokes_family(app):
     assert anyio.run(auth.load_access_token, refreshed.json()["access_token"]) is None
 
 
+def test_refresh_extends_family_expiry(app):
+    client, auth = app
+    cid, initial = token_pair(client)
+    family = auth.store.get("access", digest(initial["access_token"]))["family"]
+    soon = time.time() + 60
+    auth.store.db.execute("UPDATE families SET expires=? WHERE id=?", (soon, family))
+    refreshed = client.post(
+        "/token",
+        data={"grant_type": "refresh_token", "client_id": cid, "refresh_token": initial["refresh_token"]},
+    )
+    assert refreshed.status_code == 200, refreshed.text
+    expires = auth.store.db.execute("SELECT expires FROM families WHERE id=?", (family,)).fetchone()[0]
+    assert expires > time.time() + auth.config.refresh_ttl - 60
+    successor = auth.store.get("refresh", digest(refreshed.json()["refresh_token"]))
+    assert successor["expires_at"] == expires
+    assert anyio.run(auth.load_access_token, refreshed.json()["access_token"]) is not None
+
+
 def test_refresh_scope_and_resource_escalation(app):
     client, _ = app
     cid, pair = token_pair(client)
