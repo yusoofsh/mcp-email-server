@@ -145,7 +145,9 @@ docker compose --env-file deploy/.env -f deploy/compose.yaml up -d
 Keep the named `email_data` volume: it contains email configuration, credentials,
 OAuth registrations and token hashes. Back it up encrypted and restrict access.
 A new token or code never contains mailbox credentials. OAuth access lasts
-15 minutes; refresh grants expire after 30 days, requiring a new login.
+15 minutes; a refresh grant expires after 30 days without use, requiring a new
+login. Each refresh restarts that 30-day window, so a client in regular use stays
+signed in.
 
 To revoke every client, stop the service and run:
 
