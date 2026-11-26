@@ -344,7 +344,7 @@ def test_distribution_is_node_free_and_embeds_reproducible_ui(tmp_path: Path) ->
     rebuilt = tmp_path / "rebuilt"
     environment = os.environ.copy()
     environment["PATH"] = f"{blockers}{os.pathsep}{environment['PATH']}"
-    subprocess.run(
+    subprocess.run(  # noqa: S603 - controlled test command
         [sys.executable, "dev/build_frontend.py", "--check"],
         cwd=source,
         env=environment,
