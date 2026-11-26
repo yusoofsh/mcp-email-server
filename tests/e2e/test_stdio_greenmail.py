@@ -826,6 +826,54 @@ async def test_managed_stdio_missing_database_fails_closed_without_legacy_fallba
 
 
 @pytest.mark.asyncio
+async def test_content_headers_over_stdio_against_greenmail(tmp_path: Path) -> None:
+    _wait_until_ready()
+    _ensure_empty_mailboxes(BOB, ["INBOX"])
+    message = EmailMessage()
+    message["Received"] = "by mx.example.test"
+    message["Authentication-Results"] = "mx.example.test; dmarc=pass"
+    message["Received"] = "by upstream.example.test"
+    message["From"] = ALICE[0]
+    message["To"] = BOB[0]
+    message["Reply-To"] = "billing@example.test"
+    message["Subject"] = "Synthetic content header test"
+    message.set_content("Synthetic body")
+    with _imap_session(BOB) as client:
+        status, _ = client.append("INBOX", None, None, message.as_bytes(policy=policy.SMTP))
+        assert status == "OK"
+    observed = _find_message(BOB, "INBOX", str(message["Subject"]))
+    assert observed is not None
+    config_path = tmp_path / "config.toml"
+    config_path.write_text(CONFIG_TEMPLATE)
+    config_path.chmod(0o600)
+    server_env = {key: value for key, value in os.environ.items() if not key.startswith("MCP_EMAIL_SERVER_")}
+    server_env.update({
+        "MCP_EMAIL_SERVER_CONFIG_PATH": str(config_path),
+        "MCP_EMAIL_SERVER_CREDENTIAL_STORAGE": "plaintext",
+    })
+    server = StdioServerParameters(
+        command=str(Path(sys.executable).with_name("mcp-email-server")), args=["stdio"], env=server_env, cwd=Path.cwd()
+    )
+    async with stdio_client(server) as (read_stream, write_stream):
+        async with ClientSession(read_stream, write_stream, read_timeout_seconds=timedelta(seconds=15)) as session:
+            await session.initialize()
+            query = {"account_name": "bob", "email_ids": [observed.uid]}
+            default_result = await _call_tool(session, "get_emails_content", query)
+            assert default_result["emails"][0]["headers"] == [
+                {"name": "Received", "value": "by mx.example.test"},
+                {"name": "Authentication-Results", "value": "mx.example.test; dmarc=pass"},
+                {"name": "Received", "value": "by upstream.example.test"},
+                {"name": "Reply-To", "value": "billing@example.test"},
+            ]
+            custom = await _call_tool(session, "get_emails_content", {**query, "include_headers": ["subject"]})
+            assert custom["emails"][0]["headers"] == [{"name": "Subject", "value": str(message["Subject"])}]
+            disabled = await _call_tool(session, "get_emails_content", {**query, "include_headers": []})
+            assert "headers" not in disabled["emails"][0]
+    after = _find_message(BOB, "INBOX", str(message["Subject"]))
+    assert after is not None and "\\Seen" not in after.flags
+
+
+@pytest.mark.asyncio
 async def test_local_to_search_cache_restart_and_append_against_greenmail(tmp_path: Path) -> None:
     """Exercise real MCP, IMAP header parsing, SQLite reuse, and append-only sync."""
     _wait_until_ready()
@@ -2008,3 +2056,162 @@ async def test_protocol_primitives_over_stdio_against_greenmail(tmp_path: Path) 
                 },
             )
             _wait_for_message(BOB, "INBOX", f"smtp-{subject}")
+
+
+@pytest.mark.asyncio
+@pytest.mark.parametrize("mode", ["legacy", "managed"])
+async def test_pgp_read_and_ciphertext_forward_over_stdio(tmp_path: Path, mode, pgp_encrypt, pgp_envelope) -> None:
+    _wait_until_ready()
+    token = uuid.uuid4().hex
+    subject = f"PGP/MIME-{token}"
+    sentinel = f"decrypted-only-{token}"
+    inner = EmailMessage(policy=policy.SMTP)
+    inner["Subject"] = f"{sentinel} subject"
+    inner["Reply-To"] = "ignored-inner@example.test"
+    inner.set_content(sentinel + "\n" + "📧" * 92_000)
+    attachment_name = f"{sentinel}.bin"
+    payload = b"inner attachment bytes\x00\xff"
+    inner.add_attachment(payload, maintype="application", subtype="octet-stream", filename=attachment_name)
+    ciphertext = pgp_encrypt(inner.as_bytes(), armor=True)
+    raw = pgp_envelope(ciphertext, subject=subject).as_bytes()
+    with _imap_session(ALICE) as client:
+        status, _ = client.append("INBOX", None, None, raw)
+        assert status == "OK"
+
+    console_script = Path(sys.executable).with_name("mcp-email-server")
+    config_path = tmp_path / "config.toml"
+    catalog = tmp_path / "catalog.sqlite3"
+    temp_area = tmp_path / "temp-results"
+    temp_area.mkdir(mode=0o700)
+    env = {key: value for key, value in os.environ.items() if not key.startswith("MCP_EMAIL_SERVER_")}
+    env.update({
+        "MCP_EMAIL_SERVER_CONFIG_PATH": str(config_path),
+        "MCP_EMAIL_SERVER_LOG_LEVEL": "DEBUG",
+        "MCP_EMAIL_SERVER_E2E_KEYRING_PATH": str(tmp_path / "e2e-keyring.sqlite3"),
+        "PYTHON_KEYRING_BACKEND": "dev.greenmail.file_keyring.FileKeyring",
+        "PYTHONPATH": str(Path.cwd()),
+        "TMPDIR": str(temp_area),
+    })
+    if mode == "managed":
+        _run_cli(console_script, env, ["config", "init", "--database", str(catalog)])
+        _run_cli(
+            console_script,
+            env,
+            [
+                "account",
+                "add",
+                "alice",
+                "--email",
+                ALICE[0],
+                "--full-name",
+                "Alice",
+                "--imap-host",
+                IMAP_HOST,
+                "--imap-port",
+                str(IMAP_PORT),
+                "--imap-user",
+                ALICE[0],
+                "--no-imap-ssl",
+                "--smtp-host",
+                SMTP_HOST,
+                "--smtp-port",
+                str(SMTP_PORT),
+                "--smtp-user",
+                ALICE[0],
+                "--no-smtp-ssl",
+                "--password-stdin",
+            ],
+            stdin=f"{ALICE[1]}\n{ALICE[1]}\n",
+        )
+        current = json.loads(_run_cli(console_script, env, ["config", "policy", "--json"]))["data"]
+        assert current["enable_pgp_decryption"] is False
+        _run_cli(
+            console_script,
+            env,
+            [
+                "config",
+                "update-policy",
+                "--expected-revision",
+                str(current["revision"]),
+                "--enable-attachment-download",
+                "--enable-attachment-content",
+                "--allowed-recipients",
+                BOB[0],
+            ],
+        )
+        env["MCP_EMAIL_SERVER_ENABLE_PGP_DECRYPTION"] = "true"  # ignored in managed mode
+    else:
+        config_path.write_text(CONFIG_TEMPLATE + "\n", encoding="utf-8")
+        config_path.chmod(0o600)
+        env["MCP_EMAIL_SERVER_CREDENTIAL_STORAGE"] = "plaintext"
+
+    for enabled in (False, True):
+        if enabled:
+            if mode == "managed":
+                current = json.loads(_run_cli(console_script, env, ["config", "policy", "--json"]))["data"]
+                _run_cli(
+                    console_script,
+                    env,
+                    [
+                        "config",
+                        "update-policy",
+                        "--expected-revision",
+                        str(current["revision"]),
+                        "--enable-pgp-decryption",
+                    ],
+                )
+            else:
+                env["MCP_EMAIL_SERVER_ENABLE_PGP_DECRYPTION"] = "true"
+        server = StdioServerParameters(command=str(console_script), args=["stdio"], env=env, cwd=Path.cwd())
+        with (tmp_path / f"stdio-{enabled}.log").open("w+") as log:
+            async with (
+                stdio_client(server, errlog=log) as (reader, writer),
+                ClientSession(reader, writer, read_timeout_seconds=timedelta(seconds=45)) as session,
+            ):
+                await session.initialize()
+                metadata = await _metadata_for_subject(session, "alice", subject)
+                assert metadata["attachments"] == []
+                uid = metadata["email_id"]
+                result = await _call_tool(session, "get_emails_content", {"account_name": "alice", "email_ids": [uid]})
+                item = result["emails"][0]
+                assert item["pgp_status"] == ("decrypted" if enabled else "disabled")
+                assert item["body"].startswith(sentinel) if enabled else item["body"] == ""
+                assert item["subject"] == subject
+                assert item["headers"] == [{"name": "Reply-To", "value": "outer-reply@example.test"}]
+                filename = attachment_name if enabled else "encrypted.asc"
+                assert item["attachments"] == [filename]
+                assert "\\Seen" not in _wait_for_message(ALICE, "INBOX", subject).flags
+
+                arguments = {"account_name": "alice", "email_id": uid, "attachment_name": filename}
+                attached = await session.call_tool("get_attachment_content", arguments=arguments)
+                assert not attached.isError
+                embedded = attached.content[0]
+                assert isinstance(embedded, EmbeddedResource) and isinstance(embedded.resource, BlobResourceContents)
+                expected = payload if enabled else ciphertext
+                assert base64.b64decode(embedded.resource.blob) == expected
+                destination = tmp_path / f"downloaded-{enabled}"
+                await _call_tool(session, "download_attachment", {**arguments, "save_path": str(destination)})
+                assert destination.read_bytes() == expected
+                if enabled:
+                    await _call_tool(
+                        session,
+                        "forward_email",
+                        {"account_name": "alice", "email_id": uid, "recipients": [BOB[0]], "body": "forward note"},
+                    )
+                    sent = _wait_for_message(BOB, "INBOX", "Fwd: " + subject).message
+                    assert sentinel.encode() not in sent.as_bytes()
+                    assert [
+                        part.get_payload(decode=True) for part in sent.walk() if part.get_filename() == "encrypted.asc"
+                    ] == [ciphertext]
+                    if mode == "managed":
+                        too_large = await session.call_tool(
+                            "get_emails_content",
+                            arguments={"account_name": "alice", "email_ids": [uid] * 24, "max_body_length": 100000},
+                        )
+                        assert too_large.isError is True
+                        assert "limit_exceeded" in _text_content(too_large)
+                    assert not list(temp_area.glob("mcp-email-server-results-*"))
+                for db in tmp_path.glob("*.sqlite3*"):
+                    assert sentinel.encode() not in db.read_bytes()
+            log.seek(0)
+            assert sentinel not in log.read()

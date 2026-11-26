@@ -43,6 +43,7 @@ async def test_content_adapter_forwards_snapshot_sender_policy_and_collapses_per
                 "message_id": "<one@example.test>",
                 "in_reply_to": "<parent@example.test>",
                 "references": "<root@example.test> <parent@example.test>",
+                "headers": [{"name": "X-Notice", "value": "observed"}],
                 "subject": "One",
                 "from": "allowed@example.test",
                 "to": ["work@example.test"],
@@ -54,7 +55,9 @@ async def test_content_adapter_forwards_snapshot_sender_policy_and_collapses_per
         ]
     )
     provider = ClassicReadProvider(handler)
-    query = GetEmailContentQuery("work", ("1", "2"), mailbox="Archive", body_offset=10, max_body_length=20)
+    query = GetEmailContentQuery(
+        "work", ("1", "2"), mailbox="Archive", body_offset=10, max_body_length=20, include_headers=("X-Notice",)
+    )
 
     response = await provider.get_content(query, _account())
 
@@ -67,6 +70,8 @@ async def test_content_adapter_forwards_snapshot_sender_policy_and_collapses_per
     assert first.kwargs["allowed_senders"] == ["allowed@example.test"]
     assert first.kwargs["body_offset"] == 10
     assert first.kwargs["max_body_length"] == 20
+    assert first.kwargs["include_headers"] == ("X-Notice",)
+    assert response.emails[0].model_dump()["headers"] == [{"name": "X-Notice", "value": "observed"}]
 
 
 @pytest.mark.asyncio
@@ -112,6 +117,36 @@ async def test_content_adapter_stops_at_provider_time_aggregate_body_budget(
         )
 
     assert handler.incoming_client.get_email_body_by_id.await_count == 2
+
+
+@pytest.mark.asyncio
+async def test_content_adapter_counts_links_before_retaining_batch(monkeypatch: pytest.MonkeyPatch) -> None:
+    mail = {
+        "email_id": "1",
+        "subject": "Report",
+        "from": "allowed@example.test",
+        "to": ["work@example.test"],
+        "date": datetime(2026, 1, 1, tzinfo=UTC),
+        "body": "R",
+        "attachments": [],
+    }
+    handler = Mock()
+    fetch = AsyncMock(return_value=mail)
+    handler.incoming_client.get_email_body_by_id = fetch
+    provider = ClassicReadProvider(handler)
+    baseline = await provider.get_content(GetEmailContentQuery("work", ("1",)), _account())
+    row_bytes = len(baseline.emails[0].model_dump_json().encode("utf-8"))
+    monkeypatch.setattr(
+        reads_adapter, "APPLICATION_LIMITS", replace(reads_adapter.APPLICATION_LIMITS, spill_file_bytes=2 * row_bytes)
+    )
+    linked = {**mail, "links": [{"text": "Report", "url": "./report"}]}
+    fetch.reset_mock(side_effect=True)
+    fetch.side_effect = [linked, {**linked, "email_id": "2"}, AssertionError("must not be fetched")]
+
+    with pytest.raises(ReadProviderError, match="spill bytes"):
+        await provider.get_content(GetEmailContentQuery("work", ("1", "2", "3"), max_body_length=1), _account())
+
+    assert fetch.await_count == 2
 
 
 @pytest.mark.asyncio
@@ -206,6 +241,7 @@ async def test_attachment_adapter_forwards_sender_policy_and_maps_response() -> 
         "document.pdf",
         "Archive",
         allowed_senders=["allowed@example.test"],
+        enable_pgp_decryption=False,
     )
 
 

@@ -220,6 +220,10 @@ catalog serialization, malformed and oversized recovery, invocation,
 cancellation, idle and in-flight EOF, runtime cleanup, and stdout purity in
 addition to direct Python tests.
 
+`EmailBodyResponse` adds an optional `pgp_status` output field with values
+`decrypted`, `disabled`, and `unavailable`; ordinary mail omits it. Spec 06 owns
+PGP/MIME result semantics. No input, tool identity, or catalog visibility changes.
+
 ## Compatibility and Evolution
 
 A public catalog change requires:
@@ -248,7 +252,10 @@ inputs, and are serialized as `null` when absent. Metadata-list output remains
 unchanged, so the addition does not imply indexed or persisted thread headers.
 Exact catalog, direct application, raw stdio, and GreenMail tests cover the new
 result shape. Clients that reject unknown output fields must update their result
-type before consuming this catalog revision.
+type before consuming this catalog revision. The optional `include_headers`
+argument and additive `headers` result are defined by the body-read contract in
+[spec 06](06-mail-read-model-and-metadata-index.md#body-retrieval). They leave the
+mutation annotation and authorization unchanged.
 
 This delivery adds no `ui://` resources, MCP App metadata, embedded-app CSP, or
 host bridge calls. `get_attachment_content` is a transport-neutral MCP read tool

@@ -26,6 +26,8 @@ from mcp_email_server.application.reads import (
 )
 from mcp_email_server.config import EmailSettings
 from mcp_email_server.emails.classic import ClassicEmailHandler
+from mcp_email_server.emails.content_view import local_stdio_read
+from mcp_email_server.emails.headers import ContentHeaderLimitError, content_headers_size
 from mcp_email_server.emails.models import (
     EmailBodyResponse,
     EmailContentBatchResponse,
@@ -54,7 +56,7 @@ class ClassicReadProvider:
         except Exception:
             raise ReadProviderError("provider_failure: mailbox discovery failed") from None
 
-    async def get_content(
+    async def get_content(  # noqa: C901 - per-message outcomes and running response budgets
         self,
         query: GetEmailContentQuery,
         account: ReadAccountSnapshot,
@@ -63,6 +65,7 @@ class ClassicReadProvider:
         failed_ids: list[str] = []
         aggregate_body_bytes = 0
         aggregate_header_bytes = 0
+        aggregate_serialized_email_bytes = 0
         for email_id in query.email_ids:
             try:
                 email_data = await self._handler.incoming_client.get_email_body_by_id(
@@ -72,6 +75,8 @@ class ClassicReadProvider:
                     allowed_senders=list(account.allowed_senders),
                     body_offset=query.body_offset,
                     max_body_length=query.max_body_length,
+                    include_headers=query.include_headers,
+                    enable_pgp_decryption=account.enable_pgp_decryption and local_stdio_read.get(),
                 )
                 if not email_data:
                     failed_ids.append(email_id)
@@ -86,15 +91,21 @@ class ClassicReadProvider:
                     recipients=email_data["to"],
                     date=email_data["date"],
                     body=email_data["body"],
+                    headers=email_data.get("headers", []),
                     attachments=email_data["attachments"],
+                    links=email_data.get("links", []),
+                    pgp_status=email_data.get("pgp_status"),
                     provider_keywords=[
                         flag
                         for flag in email_data.get("_flags", [])
                         if isinstance(flag, str) and not flag.startswith("\\")
                     ],
                 )
+                selected_header_bytes = content_headers_size(email.headers, APPLICATION_LIMITS)
             except asyncio.CancelledError:
                 raise
+            except ContentHeaderLimitError as exc:
+                raise ReadProviderError(str(exc)) from None
             except Exception:
                 failed_ids.append(email_id)
                 continue
@@ -114,7 +125,8 @@ class ClassicReadProvider:
                     f"limit_exceeded: an email thread header exceeds {APPLICATION_LIMITS.header_bytes} bytes"
                 )
             aggregate_header_bytes += (
-                len(email.email_id.encode("utf-8"))
+                selected_header_bytes
+                + len(email.email_id.encode("utf-8"))
                 + len((email.message_id or "").encode("utf-8"))
                 + len((email.in_reply_to or "").encode("utf-8"))
                 + len((email.references or "").encode("utf-8"))
@@ -126,6 +138,12 @@ class ClassicReadProvider:
             if aggregate_header_bytes > APPLICATION_LIMITS.aggregate_header_bytes:
                 raise ReadProviderError(
                     f"limit_exceeded: email headers exceed {APPLICATION_LIMITS.aggregate_header_bytes} bytes in total"
+                )
+            # The serialized email entries are a lower bound for the full batch, including links.
+            aggregate_serialized_email_bytes += len(email.model_dump_json().encode("utf-8"))
+            if aggregate_serialized_email_bytes > APPLICATION_LIMITS.spill_file_bytes:
+                raise ReadProviderError(
+                    f"limit_exceeded: content result exceeds {APPLICATION_LIMITS.spill_file_bytes} spill bytes"
                 )
             emails.append(email)
         return EmailContentBatchResponse(
@@ -146,6 +164,7 @@ class ClassicReadProvider:
                 command.attachment_name,
                 command.mailbox,
                 allowed_senders=list(account.allowed_senders),
+                enable_pgp_decryption=account.enable_pgp_decryption and local_stdio_read.get(),
             )
         except asyncio.CancelledError:
             raise
@@ -161,6 +180,7 @@ class ClassicReadProvider:
             attachment_name=result["attachment_name"],
             mime_type=result["mime_type"],
             content=content,
+            decrypted=result.get("decrypted") is True,
         )
 
 
@@ -459,6 +479,7 @@ class LocalReadBackend:
                 allowed_senders=tuple(resolved.settings.allowed_senders),
                 enable_attachment_download=resolved.settings.enable_attachment_download,
                 enable_attachment_content=resolved.settings.enable_attachment_content,
+                enable_pgp_decryption=resolved.settings.enable_pgp_decryption,
                 tag_registry=ImapKeywordRegistry.from_tags(resolved.account.tags),
             ),
         )

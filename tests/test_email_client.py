@@ -16,9 +16,40 @@ from mcp_email_server.emails.classic import (
     EmailClient,
     ImapAuthenticationError,
     _create_smtp_ssl_context,
+    _html_links,
     _html_to_text,
     _imap_login,
 )
+
+
+@pytest.mark.parametrize("root_position", [0, 1])
+@pytest.mark.parametrize("plain_alternative", [False, True])
+def test_body_links_only_use_related_root(email_client, root_position, plain_alternative):
+    from email.mime.multipart import MIMEMultipart
+
+    related = MIMEMultipart("related", **({"start": "<root@example.test>"} if root_position else {}))
+    root = MIMEText('<a href="./report">Report</a>', "html")
+    root["Content-ID"] = "(Body) <root@example.test> (HTML (root))"
+    auxiliary = MIMEText('<a href="https://example.test/help">Help</a>', "html")
+    auxiliary["Content-ID"] = "<aux@example.test>"
+    for part in [auxiliary, root] if root_position else [root, auxiliary]:
+        related.attach(part)
+    message = related
+    if plain_alternative:
+        message = MIMEMultipart("alternative")
+        message.attach(MIMEText("Plain body", "plain"))
+        message.attach(related)
+
+    result = email_client._parse_email_data(message.as_bytes())
+    window = email_client._parse_email_data(message.as_bytes(), max_body_length=1)
+
+    assert result["links"] == window["links"] == [{"text": "Report", "url": "./report"}]
+    if plain_alternative:
+        assert result["body"] == "Plain body"
+    else:
+        # Link selection must not change the historical HTML-to-text fallback.
+        assert "Help (https://example.test/help)" in result["body"]
+        assert "Report (./report)" in result["body"]
 
 
 @pytest.fixture
@@ -470,6 +501,60 @@ class TestEmailClient:
 
         assert "First" in result["body"]
         assert "Second & third" in result["body"]
+
+    def test_parse_email_data_returns_html_links_when_plain_text_present(self):
+        """A text/plain part does not hide the HTML part's link targets."""
+        from email.mime.multipart import MIMEMultipart
+
+        msg = MIMEMultipart("alternative")
+        msg["Subject"] = "Headcount open"
+        msg["From"] = "sender@example.com"
+        msg["To"] = "recipient@example.com"
+        msg["Date"] = email.utils.formatdate()
+        msg.attach(MIMEText("Report headcount.\n\nSIGN IN\n", "plain", "utf-8"))
+        msg.attach(
+            MIMEText(
+                '<p>Report headcount.</p><a href="https://example.com/signin?x=1&amp;y=2">SIGN IN</a>'
+                '<a href="mailto:help@example.com">help</a><a href="#top">top</a>',
+                "html",
+                "utf-8",
+            )
+        )
+
+        client = EmailClient(MagicMock())
+        result = client._parse_email_data(msg.as_bytes())
+
+        assert "SIGN IN" in result["body"]
+        assert "https://" not in result["body"]
+        assert result["links"] == [{"text": "SIGN IN", "url": "https://example.com/signin?x=1&y=2"}]
+
+    def test_parse_email_data_links_empty_without_html(self):
+        """A plain-text-only email returns no links."""
+        msg = MIMEText("Just text, see https://example.com/inline", "plain", "utf-8")
+        msg["Subject"] = "Plain"
+        msg["From"] = "sender@example.com"
+        msg["To"] = "recipient@example.com"
+        msg["Date"] = email.utils.formatdate()
+
+        client = EmailClient(MagicMock())
+        result = client._parse_email_data(msg.as_bytes())
+
+        assert result["links"] == []
+
+    def test_html_links_dedupes_and_skips_unsafe(self):
+        """Link extraction keeps document order, drops unsafe and repeated targets."""
+        html = (
+            '<a href="https://a.example/x">First</a>'
+            '<a href=" https://a.example/x ">Again</a>'
+            '<a href="java&#10;script:alert(1)">bad</a>'
+            '<a href="">empty</a>'
+            '<a href="https://b.example/y"><img alt="logo"></a>'
+        )
+
+        assert _html_links(html) == [
+            {"text": "First", "url": "https://a.example/x"},
+            {"text": "", "url": "https://b.example/y"},
+        ]
 
     def test_parse_email_data_with_attachments(self):
         """Test parsing a real multipart message with an attachment."""

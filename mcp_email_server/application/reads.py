@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import asyncio
+import re
 from collections.abc import Awaitable
 from dataclasses import dataclass, field
 from typing import Protocol, TypeVar
@@ -17,6 +18,12 @@ from mcp_email_server.application.metadata import RuntimeMode
 from mcp_email_server.application.mutations import (
     BatchMutationOutcome,
     MarkReadCommand,
+)
+from mcp_email_server.emails.headers import (
+    DEFAULT_CONTENT_HEADERS,
+    HEADER_NAME_PATTERN,
+    ContentHeaderLimitError,
+    content_headers_size,
 )
 from mcp_email_server.emails.models import (
     AttachmentDownloadResponse,
@@ -57,6 +64,7 @@ class AttachmentPayload:
     attachment_name: str
     mime_type: str
     content: bytes
+    decrypted: bool = False
 
 
 @dataclass(frozen=True)
@@ -66,6 +74,7 @@ class ReadAccountSnapshot:
     allowed_senders: tuple[str, ...]
     enable_attachment_download: bool
     enable_attachment_content: bool = False
+    enable_pgp_decryption: bool = False
     tag_registry: ImapKeywordRegistry = field(default_factory=ImapKeywordRegistry)
 
 
@@ -98,6 +107,7 @@ class GetEmailContentQuery:
     mark_as_read: bool = False
     body_offset: int = 0
     max_body_length: int = 20_000
+    include_headers: tuple[str, ...] = DEFAULT_CONTENT_HEADERS
 
     def validate(self) -> None:
         _validate_account_name(self.account_name)
@@ -107,6 +117,13 @@ class GetEmailContentQuery:
             raise ValueError("body_offset must not be negative")
         if not 1 <= self.max_body_length <= 100_000:
             raise ValueError("max_body_length must be between 1 and 100000")
+        if len(self.include_headers) > APPLICATION_LIMITS.content_header_names:
+            raise ValueError(f"include_headers accepts at most {APPLICATION_LIMITS.content_header_names} names")
+        if any(
+            len(name) > APPLICATION_LIMITS.content_header_name_bytes or not re.fullmatch(HEADER_NAME_PATTERN, name)
+            for name in self.include_headers
+        ):
+            raise ValueError("include_headers requires bounded ASCII email field names without whitespace or colons")
 
 
 @dataclass(frozen=True)
@@ -263,6 +280,10 @@ def _validate_content_result(response: EmailContentBatchResponse) -> bytes:
         + sum(len(value.encode("utf-8")) for value in email.semantic_tags)
         for email in response.emails
     )
+    try:
+        header_bytes += sum(content_headers_size(email.headers, APPLICATION_LIMITS) for email in response.emails)
+    except ContentHeaderLimitError as exc:
+        raise ReadProviderError(str(exc)) from None
     if header_bytes > APPLICATION_LIMITS.aggregate_header_bytes:
         raise ReadProviderError(
             f"limit_exceeded: email headers exceed {APPLICATION_LIMITS.aggregate_header_bytes} bytes in total"
@@ -313,6 +334,8 @@ class EmailContentService:
             pass
         else:
             return response
+        if any(email.pgp_status == "decrypted" for email in response.emails):
+            raise ReadProviderError("limit_exceeded: reduce the batch or body window for decrypted content")
         if self._large_results is None:
             raise ReadProviderError("limit_exceeded: serialized content result is too large")
         reference = await self._large_results.write(prefix="email-content", content=serialized)
@@ -339,6 +362,10 @@ class EmailContentService:
         account = self._accounts.resolve(query.account_name)
         access = self._providers.open(account.account_name, expected_mode=account.mode)
         response = await _bounded_provider_call(access.provider.get_content(query, access.account))
+        if any(email.pgp_status == "decrypted" for email in response.emails):
+            current = self._accounts.resolve(query.account_name, expected_mode=access.account.mode)
+            if not current.enable_pgp_decryption:
+                raise PermissionError("PGP/MIME decryption is disabled")
         response = response.model_copy(
             update={
                 "emails": [
@@ -410,6 +437,8 @@ class AttachmentDownloadService:
             raise PermissionError(
                 "Attachment download is disabled. Set 'enable_attachment_download=true' in settings to enable this feature."
             )
+        if payload.decrypted and not current.enable_pgp_decryption:
+            raise PermissionError("PGP/MIME decryption is disabled")
         saved_path = await self._artifacts.write(resolved_path, payload)
         response = AttachmentDownloadResponse(
             email_id=payload.email_id,
@@ -450,6 +479,8 @@ class AttachmentContentService:
             raise PermissionError(
                 "Attachment content transfer is disabled. Set 'enable_attachment_content=true' in settings to enable this feature."
             )
+        if payload.decrypted and not current.enable_pgp_decryption:
+            raise PermissionError("PGP/MIME decryption is disabled")
         return payload
 
 
