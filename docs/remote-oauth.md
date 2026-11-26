@@ -2,14 +2,14 @@
 
 Repository: https://github.com/yusoofsh/mcp-email-server
 
-Image: `ghcr.io/yusoofsh/mcp-email-server:1.9.1-ys.1` (use the newest version tag)
+Image: `ghcr.io/yusoofsh/mcp-email-server:1.16.0-ys.1` (use the newest version tag)
 
 The repository's root `Dockerfile` builds the single supported OAuth image.
 `deploy/compose.yaml` is the canonical deployment. `latest` is the only floating
 tag and is intentionally mutable. Releases also get an immutable version tag such as
-`1.9.1-ys.1`, created from the tested digest by a manually dispatched run. Pin
+`1.16.0-ys.1`, created from the tested digest by a manually dispatched run. Pin
 production deployments to a version tag, for example
-`ghcr.io/yusoofsh/mcp-email-server:1.9.1-ys.1`.
+`ghcr.io/yusoofsh/mcp-email-server:1.16.0-ys.1`.
 
 ## What you need
 
